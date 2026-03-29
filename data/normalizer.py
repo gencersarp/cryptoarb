@@ -1,154 +1,181 @@
 """
-Data normalization layer.
+Data normalizer: merges raw CSVs into a unified panel.
 
-Takes raw CSVs from data/raw/ and produces a clean, aligned, multi-indexed
-panel DataFrame at the configured base frequency (default: 8h).
+Output panel columns per (venue, asset):
+  ts               UTC timestamp (index)
+  spot_open/high/low/close  spot OHLCV
+  perp_open/high/low/close  perp OHLCV
+  spot_volume      spot volume in base asset
+  perp_volume      perp volume
+  funding_rate     8h funding rate (exchange-native convention)
+  basis            (perp_close - spot_close) / spot_close
+  realized_vol     rolling 24-bar (8-day) realized vol of perp returns
+  adv              20-bar rolling average daily volume (USD notional)
+  venue            string label
+  asset            string label
 
-Output columns per (venue, asset):
-  spot_close, spot_volume, spot_adv, perp_close, perp_volume,
-  funding_rate, funding_ann, basis, basis_ann, realized_vol, adv
+All NaN-handling is explicit: forward-fill funding rates up to 1 interval,
+interpolate small gaps in price, drop bars with critical missing data.
 """
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-ANNUALIZE_FACTOR = {"binance": 1095, "bybit": 1095, "okx": 1095}  # 8h*3*365
 
-
-def _load_ohlcv(path: str) -> Optional[pd.DataFrame]:
-    if not Path(path).exists():
-        logger.warning(f"File not found: {path}")
+def load_raw(path: str) -> Optional[pd.DataFrame]:
+    p = Path(path)
+    if not p.exists():
+        logger.warning(f"Missing raw file: {path}")
         return None
-    df = pd.read_csv(path, parse_dates=["timestamp"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    df = (df.sort_values("timestamp")
-            .drop_duplicates("timestamp")
-            .set_index("timestamp"))
-    for col in ["open", "high", "low", "close", "volume", "quote_volume"]:
+    df = pd.read_csv(p, parse_dates=["ts"])
+    if "ts" not in df.columns:
+        return None
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    return df.sort_values("ts").drop_duplicates("ts").set_index("ts")
+
+
+def normalize_ohlcv(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    """
+    Rename OHLCV columns with prefix, ensure numeric types,
+    interpolate small gaps (max 2 bars), forward-fill volume.
+    """
+    cols = {"open": f"{prefix}_open", "high": f"{prefix}_high",
+            "low":  f"{prefix}_low",  "close": f"{prefix}_close",
+            "volume": f"{prefix}_volume"}
+    df = df.rename(columns=cols)
+    for col in cols.values():
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Linear interpolation for price gaps (max 2 missing bars)
+    price_cols = [c for c in cols.values() if "volume" not in c]
+    df[price_cols] = df[price_cols].interpolate(method="linear", limit=2)
+    # Forward-fill volume (no interpolation — volume not well-defined for missing bars)
+    if f"{prefix}_volume" in df.columns:
+        df[f"{prefix}_volume"] = df[f"{prefix}_volume"].fillna(0.0)
     return df
 
 
-def _load_funding(path: str) -> Optional[pd.DataFrame]:
-    if not Path(path).exists():
-        logger.warning(f"Funding file not found: {path}")
+def compute_realized_vol(close: pd.Series, window: int = 24) -> pd.Series:
+    """
+    Annualized realized vol from log returns, rolling window.
+    window=24 bars @ 8h each = 8 days.
+    Annualization factor: sqrt(3 * 365) = sqrt(1095).
+    """
+    log_ret = np.log(close / close.shift(1))
+    rv = log_ret.rolling(window).std() * np.sqrt(1095)
+    return rv.fillna(log_ret.std() * np.sqrt(1095))
+
+
+def compute_adv(close: pd.Series, volume: pd.Series, window: int = 20) -> pd.Series:
+    """
+    Average Daily USD Volume proxy over rolling window.
+    """
+    notional = close * volume
+    return notional.rolling(window).mean().fillna(notional.mean())
+
+
+def build_single_panel(venue: str, asset: str, raw_dir: str) -> Optional[pd.DataFrame]:
+    """
+    Build a normalized, feature-enriched panel for one venue/asset pair.
+    Returns None if critical data is missing.
+    """
+    base = Path(raw_dir) / venue
+    spot_path    = base / f"{asset}_spot.csv"
+    perp_path    = base / f"{asset}_perp.csv"
+    funding_path = base / f"{asset}_funding.csv"
+
+    spot_df    = load_raw(str(spot_path))
+    perp_df    = load_raw(str(perp_path))
+    funding_df = load_raw(str(funding_path))
+
+    if perp_df is None:
+        logger.warning(f"No perp data for {venue}/{asset}. Skipping.")
         return None
-    df = pd.read_csv(path, parse_dates=["timestamp"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    df = (df.sort_values("timestamp")
-            .drop_duplicates("timestamp")
-            .set_index("timestamp"))
-    df["funding_rate"] = pd.to_numeric(df["funding_rate"], errors="coerce")
-    return df
+
+    # Build base index from perp bars
+    panel = normalize_ohlcv(perp_df, "perp")
+
+    # Merge spot if available
+    if spot_df is not None:
+        spot_norm = normalize_ohlcv(spot_df, "spot")
+        panel = panel.join(spot_norm, how="left")
+    else:
+        # Use perp as proxy for spot (less ideal but functional)
+        logger.warning(f"No spot data for {venue}/{asset}. Using perp as spot proxy.")
+        for col in ["open", "high", "low", "close", "volume"]:
+            panel[f"spot_{col}"] = panel[f"perp_{col}"]
+
+    # Merge funding rates
+    if funding_df is not None:
+        funding_df = funding_df.rename(columns={"funding_rate": "funding_rate"})
+        # Reindex to perp bars, forward-fill up to 3 bars (one funding interval)
+        funding_reindexed = funding_df["funding_rate"].reindex(
+            panel.index, method="ffill", limit=3
+        )
+        panel["funding_rate"] = funding_reindexed.fillna(0.0)
+    else:
+        logger.warning(f"No funding data for {venue}/{asset}. Setting to zero.")
+        panel["funding_rate"] = 0.0
+
+    # Derived features
+    panel["basis"] = (
+        (panel["perp_close"] - panel["spot_close"]) / panel["spot_close"]
+    ).fillna(0.0)
+
+    panel["realized_vol"] = compute_realized_vol(panel["perp_close"])
+    panel["adv"]          = compute_adv(panel["perp_close"], panel["perp_volume"])
+
+    panel["venue"] = venue
+    panel["asset"] = asset
+
+    # Drop bars where critical columns are NaN
+    critical = ["perp_close", "spot_close", "realized_vol"]
+    before = len(panel)
+    panel = panel.dropna(subset=critical)
+    after  = len(panel)
+    if before - after > 0:
+        logger.info(f"{venue}/{asset}: dropped {before-after} bars with missing critical data")
+
+    if len(panel) < 100:
+        logger.warning(f"{venue}/{asset}: only {len(panel)} bars after cleaning. Skipping.")
+        return None
+
+    logger.info(f"{venue}/{asset}: {len(panel)} clean bars "
+                f"from {panel.index[0]} to {panel.index[-1]}")
+    return panel
 
 
-def _resample_ohlcv(df: pd.DataFrame, freq: str) -> pd.DataFrame:
-    agg = {k: v for k, v in {
-        "open": "first", "high": "max", "low": "min",
-        "close": "last", "volume": "sum", "quote_volume": "sum"
-    }.items() if k in df.columns}
-    return df.resample(freq).agg(agg).dropna(subset=["close"])
-
-
-def build_panel(assets: list, venues: list, raw_dir: str = "data/raw",
-                freq: str = "8h", vol_lookback: int = 20,
-                adv_lookback: int = 20) -> pd.DataFrame:
+def build_panel(assets: List[str], venues: List[str],
+                raw_dir: str, freq: str = "8h") -> pd.DataFrame:
     """
-    Load all raw data and produce a clean multi-indexed panel.
-    Index: (ts, venue, asset). Columns: spot_close, perp_close,
-           funding_rate, funding_ann, basis, realized_vol, adv, ...
+    Build multi-index panel for all (venue, asset) pairs.
+    Returns flat DataFrame with venue/asset as columns for single-series strategies.
+    Falls back to first available series if multi-index not needed.
     """
-    records = []
+    panels = {}
     for venue in venues:
         for asset in assets:
-            base     = f"{raw_dir}/{venue}/{asset}"
-            spot_df  = _load_ohlcv(f"{base}/spot_1h.csv")
-            perp_df  = _load_ohlcv(f"{base}/perp_1h.csv")
-            fund_df  = _load_funding(f"{base}/funding_8h.csv")
+            p = build_single_panel(venue, asset, raw_dir)
+            if p is not None:
+                panels[(venue, asset)] = p
 
-            if spot_df is None or perp_df is None:
-                logger.warning(f"Missing data for {venue}/{asset} — skipping")
-                continue
+    if not panels:
+        raise ValueError("No valid panels built. Check raw data in data/raw/.")
 
-            spot_r = _resample_ohlcv(spot_df, freq)
-            perp_r = _resample_ohlcv(perp_df, freq)
-            idx    = spot_r.index.intersection(perp_r.index)
-            if len(idx) == 0:
-                logger.warning(f"No overlapping timestamps for {venue}/{asset}")
-                continue
-
-            panel = pd.DataFrame(index=idx)
-            panel["spot_close"]     = spot_r.loc[idx, "close"]
-            panel["spot_volume"]    = spot_r.loc[idx].get("volume",  np.nan)
-            panel["spot_quote_vol"] = spot_r.loc[idx].get("quote_volume", np.nan)
-            panel["perp_close"]     = perp_r.loc[idx, "close"]
-            panel["perp_volume"]    = perp_r.loc[idx].get("volume", np.nan)
-
-            if fund_df is not None:
-                fund_r = fund_df["funding_rate"].resample(freq).sum().fillna(0)
-                panel["funding_rate"] = fund_r.reindex(idx, fill_value=0)
-            else:
-                panel["funding_rate"] = 0.0
-
-            ann = ANNUALIZE_FACTOR.get(venue, 1095)
-            panel["funding_ann"] = panel["funding_rate"] * ann
-            panel["basis"]       = ((panel["perp_close"] - panel["spot_close"])
-                                    / panel["spot_close"])
-            panel["basis_ann"]   = panel["basis"] * ann
-
-            log_ret = np.log(
-                panel["spot_close"] / panel["spot_close"].shift(1))
-            panel["realized_vol"] = log_ret.rolling(
-                vol_lookback, min_periods=5).std()
-            panel["adv"] = panel["spot_quote_vol"].rolling(
-                adv_lookback, min_periods=5).mean()
-
-            panel["venue"] = venue
-            panel["asset"] = asset
-            panel = panel.reset_index().rename(columns={"timestamp": "ts"})
-            records.append(panel)
-
-    if not records:
-        raise ValueError(
-            "No data loaded. Run: python scripts/download_data.py first.")
-
-    combined = (pd.concat(records, ignore_index=True)
-                  .set_index(["ts", "venue", "asset"])
-                  .sort_index()
-                  .dropna(subset=["spot_close", "perp_close"]))
-
-    logger.info(
-        f"Panel built: {len(combined)} rows | "
-        f"{combined.index.get_level_values('ts').nunique()} timestamps | "
-        f"{combined.index.get_level_values('venue').nunique()} venues | "
-        f"{combined.index.get_level_values('asset').nunique()} assets")
-    return combined
+    logger.info(f"Built {len(panels)} panels: {list(panels.keys())}")
+    # Return dict; individual strategies pick the series they need
+    # For backward compat: if only one pair, return flat DataFrame
+    if len(panels) == 1:
+        return list(panels.values())[0]
+    return panels  # type: ignore
 
 
-def get_single_series(panel: pd.DataFrame, venue: str, asset: str) -> pd.DataFrame:
-    """Extract a single (venue, asset) time series from the multi-indexed panel."""
-    try:
-        return panel.xs((venue, asset), level=("venue", "asset")).copy()
-    except KeyError:
-        logger.error(f"No data for venue={venue} asset={asset}")
-        return pd.DataFrame()
-
-
-def compute_cross_venue_funding_diff(panel: pd.DataFrame,
-                                      asset: str,
-                                      venue_a: str,
-                                      venue_b: str) -> pd.Series:
-    """Funding differential (venue_a − venue_b) aligned on common timestamps."""
-    try:
-        fa = panel.xs((venue_a, asset), level=("venue", "asset"))["funding_rate"]
-        fb = panel.xs((venue_b, asset), level=("venue", "asset"))["funding_rate"]
-    except KeyError as e:
-        logger.error(f"Missing cross-venue data: {e}")
-        return pd.Series(dtype=float)
-    aligned = fa.align(fb, join="inner")
-    return aligned[0] - aligned[1]
+def get_single_series(panels, venue: str, asset: str) -> pd.DataFrame:
+    if isinstance(panels, dict):
+        return panels.get((venue, asset), pd.DataFrame())
+    return panels  # already flat

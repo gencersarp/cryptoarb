@@ -1,0 +1,2 @@
+# This directory holds raw CSV data (gitignored except this file).
+# Run: python scripts/download_data.py to populate.
