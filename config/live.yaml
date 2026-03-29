@@ -1,0 +1,40 @@
+# ─── Paper / Live Trading Configuration ─────────────────────────────────────
+# Overrides values from main.yaml for paper-trade / live mode.
+# IMPORTANT: Set API keys in .env, never in this file.
+
+mode: paper   # 'paper' | 'live' — 'live' requires explicit operator confirmation
+
+paper_trade:
+  initial_capital: 10000
+  log_fills: true
+  fill_delay_ms: 200
+
+live:
+  capital_at_risk: 5000
+  require_confirmation: true
+
+api:
+  binance:
+    key_env: BINANCE_API_KEY
+    secret_env: BINANCE_API_SECRET
+    testnet: true
+  bybit:
+    key_env: BYBIT_API_KEY
+    secret_env: BYBIT_API_SECRET
+    testnet: true
+  okx:
+    key_env: OKX_API_KEY
+    secret_env: OKX_API_SECRET
+    passphrase_env: OKX_PASSPHRASE
+    testnet: true
+
+execution:
+  order_type: limit
+  limit_offset_bps: 1
+  fallback_to_market: true
+  limit_timeout_s: 30
+  max_retry: 3
+  retry_backoff_s: 2
+
+heartbeat_interval_s: 60
+reconnect_on_error: true
