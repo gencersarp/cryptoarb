@@ -1,36 +1,17 @@
-# Data — never commit raw market data
-data/raw/
-data/processed/
-data/cache/
-
-# Secrets
 .env
-*.key
-*.pem
-
-# Python
+.venv/
+venv/
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
-.eggs/
-
-# Virtual envs
-venv/
-.venv/
-env/
-
-# Results (large files)
+data/raw/
 results/
-logs/
-mlruns/
-
-# Jupyter
+.optuna/
+*.db
+*.sqlite
+.DS_Store
 .ipynb_checkpoints/
-*.ipynb
-
-# IDE
-.vscode/
-.idea/
-*.swp
+*.log
