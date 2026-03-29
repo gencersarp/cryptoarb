@@ -1,40 +1,45 @@
-# ─── Paper / Live Trading Configuration ─────────────────────────────────────
-# Overrides values from main.yaml for paper-trade / live mode.
-# IMPORTANT: Set API keys in .env, never in this file.
+# ============================================================
+# CryptoArb Live / Paper Trading Configuration
+# ============================================================
+# WARNING: Set sandbox: true until validated on paper for >= 30 days
 
-mode: paper   # 'paper' | 'live' — 'live' requires explicit operator confirmation
+project:
+  name: cryptoarb-live
+  seed: 42
+  log_dir: logs/
+  log_level: INFO
 
 paper_trade:
+  enabled: true              # MUST be true until you're confident
   initial_capital: 10000
   log_fills: true
-  fill_delay_ms: 200
+  alert_on_signal: true
 
 live:
-  capital_at_risk: 5000
-  require_confirmation: true
+  enabled: false             # flip to true ONLY after 30+ days paper
+  max_order_size_usd: 500
+  max_total_exposure_usd: 3000
+  emergency_stop_drawdown_pct: 5.0
 
-api:
-  binance:
-    key_env: BINANCE_API_KEY
-    secret_env: BINANCE_API_SECRET
-    testnet: true
-  bybit:
-    key_env: BYBIT_API_KEY
-    secret_env: BYBIT_API_SECRET
-    testnet: true
-  okx:
-    key_env: OKX_API_KEY
-    secret_env: OKX_API_SECRET
-    passphrase_env: OKX_PASSPHRASE
-    testnet: true
+venues:
+  - name: binance
+    sandbox: true
+    funding_interval_hours: 8
+    maker_fee: 0.0002
+    taker_fee: 0.0004
 
-execution:
-  order_type: limit
-  limit_offset_bps: 1
-  fallback_to_market: true
-  limit_timeout_s: 30
-  max_retry: 3
-  retry_backoff_s: 2
+strategies:
+  SpotPerpFunding:
+    enabled: true
+    assets: [BTC]
+    venues: [binance]
+    entry_funding_threshold: 0.0003
+    exit_funding_threshold:  0.0001
+    max_hold_bars:           21
+    position_size_pct:       0.40
+    max_open_positions:      1
 
-heartbeat_interval_s: 60
-reconnect_on_error: true
+risk:
+  max_drawdown_pct:     5.0
+  daily_loss_limit_pct: 2.0
+  halt_on_consecutive_losses: 3

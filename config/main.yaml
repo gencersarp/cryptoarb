@@ -1,205 +1,184 @@
-# ─── CryptoArb Main Configuration ──────────────────────────────────────────
-# All parameters here can be overridden by per-run CLI flags.
+# ============================================================
+# CryptoArb Master Configuration
+# ============================================================
 
 project:
   name: cryptoarb
   seed: 42
-  log_level: INFO
   results_dir: results/
-  mlflow_tracking_uri: mlruns/
+  log_level: INFO
 
-# ─── Universe ────────────────────────────────────────────────────────────────
+# ── Assets ───────────────────────────────────────────────────
 assets:
-  primary:    [BTC, ETH]
-  secondary:  [SOL, BNB]   # Only used if data quality passes checks
-  base_quote: USDT
+  primary:   [BTC, ETH]
+  secondary: [SOL, BNB]   # enabled only if data quality passes
+  min_history_days: 180
 
+# ── Venues ───────────────────────────────────────────────────
 venues:
   - name: binance
     enabled: true
-    spot:    true
-    perp:    true
+    maker_fee: 0.0002        # 2 bps
+    taker_fee: 0.0004        # 4 bps
     funding_interval_hours: 8
-    maker_fee: 0.0002
-    taker_fee: 0.0004
     borrow_rate_annual: 0.05
-    min_notional: 10.0
     max_leverage: 10
+    min_notional: 10.0
+
   - name: bybit
     enabled: true
-    spot:    true
-    perp:    true
+    maker_fee: 0.0001        # 1 bp
+    taker_fee: 0.0006        # 6 bps
     funding_interval_hours: 8
-    maker_fee: 0.0001
-    taker_fee: 0.0006
     borrow_rate_annual: 0.06
-    min_notional: 10.0
     max_leverage: 10
+    min_notional: 10.0
+
   - name: okx
     enabled: true
-    spot:    true
-    perp:    true
+    maker_fee: 0.0002        # 2 bps
+    taker_fee: 0.0005        # 5 bps
     funding_interval_hours: 8
-    maker_fee: 0.0002
-    taker_fee: 0.0005
-    borrow_rate_annual: 0.055
-    min_notional: 10.0
+    borrow_rate_annual: 0.05
     max_leverage: 10
+    min_notional: 10.0
 
-# ─── Data ────────────────────────────────────────────────────────────────────
+# ── Data ─────────────────────────────────────────────────────
 data:
+  raw_dir: data/raw
+  frequency: 8h              # bar frequency matches funding interval
   start_date: "2020-01-01"
   end_date:   "2024-12-31"
-  frequency:  "8h"           # resample all data to this base frequency
-  cache_dir:  data/cache/
-  raw_dir:    data/raw/
-  processed_dir: data/processed/
-  prefer_local: true
+  min_bars: 500
 
-# ─── Backtest ────────────────────────────────────────────────────────────────
-backtest:
-  initial_capital: 100000
-  currency: USDT
-
-  walk_forward:
-    n_splits: 5
-    train_ratio: 0.6
-    val_ratio:   0.2
-    test_ratio:  0.2
-    randomize_start_offset: true
-    offset_range_days: 15
-
-  execution:
-    fill_model: probabilistic
-    maker_fill_prob: 0.60
-    slippage_model: vol_scaled
-    slippage_k: 0.1
-    latency_ms: 50
-    partial_fill_pct: 0.85
-
-  force_close_at_end: true
-  mark_to_market: true
-
-# ─── Risk ────────────────────────────────────────────────────────────────────
-risk:
-  max_drawdown_pct: 10.0
-  max_position_pct: 20.0
-  max_gross_leverage: 3.0
-  max_net_leverage: 0.5
-  per_strategy_capital_pct: 40.0
-  margin_buffer_pct: 20.0
-  daily_loss_limit_pct: 3.0
-
-# ─── Strategies ──────────────────────────────────────────────────────────────
+# ── Strategies ───────────────────────────────────────────────
 strategies:
+
   SpotPerpFunding:
     enabled: true
     assets: [BTC, ETH]
-    venues: [binance, bybit]
-    entry_funding_threshold: 0.0003
-    exit_funding_threshold:  0.0001
-    max_holding_periods: 12
-    rehedge_frequency_bars: 1
-    leverage: 1.0
-
-  PerpPerpFunding:
-    enabled: true
-    assets: [BTC, ETH]
-    venues: [binance, bybit, okx]
-    entry_diff_threshold: 0.0002
-    exit_diff_threshold:  0.00005
-    max_holding_periods: 6
-    rehedge_frequency_bars: 1
-    leverage: 1.0
-
-  BasisArb:
-    enabled: true
-    assets: [BTC, ETH]
     venues: [binance]
-    entry_basis_pct: 0.003
-    exit_basis_pct:  0.0005
-    convergence_window_bars: 24
-    leverage: 1.0
+    entry_funding_threshold: 0.0003   # annualized / 3 = 8h rate threshold
+    exit_funding_threshold:  0.0001
+    min_annualized_yield:    0.05     # 5% annualized minimum
+    max_hold_bars:           21       # ~7 days at 8h bars
+    position_size_pct:       0.40     # 40% of capital per leg
+    max_open_positions:      2
+    use_basis_filter:        true
+    basis_filter_z:          1.5      # only enter if basis not too stretched
+
+  PerpPerpDiff:
+    enabled: true
+    assets: [BTC, ETH]
+    venues: [binance, bybit]
+    min_funding_spread:      0.0002   # 8h rate differential
+    zscore_lookback:         30
+    entry_z:                 2.0
+    exit_z:                  0.5
+    max_hold_bars:           6        # short duration — funding resets every 8h
+    position_size_pct:       0.30
+    max_open_positions:      2
 
   BasisMeanRevert:
     enabled: true
     assets: [BTC, ETH]
-    venues: [binance, bybit]
-    zscore_lookback: 30
-    entry_z: 2.0
-    exit_z:  0.5
-    max_holding_periods: 12
-    leverage: 1.0
-
-  FundingMeanRevert:
-    enabled: true
-    assets: [BTC, ETH]
-    venues: [binance, bybit, okx]
-    zscore_lookback: 30
-    entry_z: 1.5
-    exit_z:  0.3
-    max_holding_periods: 8
-    leverage: 1.0
+    venues: [binance]
+    zscore_lookback:         48       # 16 days of 8h bars
+    entry_z:                 2.0
+    exit_z:                  0.5
+    stop_z:                  3.5
+    max_hold_bars:           36       # 12 days
+    position_size_pct:       0.35
+    max_open_positions:      2
 
   StatArb:
     enabled: true
-    pairs: [[BTC, ETH]]
+    assets: [BTC, ETH]
     venues: [binance]
-    coint_lookback: 90
-    zscore_lookback: 20
-    entry_z: 2.0
-    exit_z:  0.5
-    hedge_ratio_update_freq: 24
-    max_holding_periods: 12
-    leverage: 1.0
+    coint_lookback:          90       # 30 days of 8h bars
+    zscore_lookback:         20
+    entry_z:                 2.0
+    exit_z:                  0.3
+    stop_z:                  3.5
+    max_hold_bars:           30
+    position_size_pct:       0.25
+    max_open_positions:      1
+    min_coint_pvalue:        0.05
 
-# ─── Stress Tests ────────────────────────────────────────────────────────────
+# ── Backtest ─────────────────────────────────────────────────
+backtest:
+  initial_capital: 100000
+
+  walk_forward:
+    n_splits:              5
+    train_ratio:           0.60
+    val_ratio:             0.20
+    test_ratio:            0.20
+    randomize_start_offset: true
+    offset_range_days:     15
+
+  execution:
+    seed: 42
+    maker_fill_prob:        0.60     # 60% chance of maker fill on limit orders
+    slippage_model:         vol_adv  # vol_adv | fixed | zero
+    slippage_vol_mult:      0.10     # slippage = vol * mult * sqrt(size/adv)
+    min_slippage_bps:       0.5
+    max_slippage_bps:       50.0
+    exchange_downtime_prob: 0.005    # 0.5% chance of missed fill per bar
+
+  risk:
+    max_drawdown_pct:            10.0
+    daily_loss_limit_pct:         3.0
+    per_strategy_capital_pct:    40.0
+    max_total_leverage:           3.0
+    margin_buffer_pct:           20.0
+
+# ── Parameter Search ─────────────────────────────────────────
+optimization:
+  n_trials:              200
+  n_startup_trials:       30
+  direction:           maximize     # maximize Sharpe
+  min_trades:            30
+  perturbation_pct:      0.20
+  n_perturbations:       20
+  seed: 42
+
+# ── Validation ───────────────────────────────────────────────
+validation:
+  min_oos_sharpe:             0.8
+  max_is_oos_sharpe_gap:      0.3
+  max_single_fold_return_pct: 0.30
+  max_drawdown_limit_pct:     10.0
+  min_trades_per_fold:        10
+  perturbation_cv_threshold:  0.25
+
+# ── Stress Tests ─────────────────────────────────────────────
 stress_tests:
   funding_flip_shock:
-    enabled: true
+    enabled:          true
     shock_multiplier: -3.0
 
   vol_spike:
-    enabled: true
+    enabled:       true
     vol_multiplier: 3.0
 
   cost_stress_15x:
+    enabled:      true
+    fee_mult:     1.5
+    slip_mult:    1.5
+
+  crisis_windows:
     enabled: true
-    fee_multiplier: 1.5
-    slippage_multiplier: 1.5
-
-  regime_stress:
-    enabled: true
-    crisis_windows:
-      - ["2020-03-01", "2020-04-15"]
-      - ["2022-05-01", "2022-06-15"]
-      - ["2022-11-01", "2022-12-15"]
-
-# ─── Optimization ────────────────────────────────────────────────────────────
-optimization:
-  method: bayesian
-  n_trials: 200
-  n_startup_trials: 20
-  objective: sharpe_ratio
-  direction: maximize
-  min_trades: 30
-  max_is_oos_sharpe_gap: 0.3
-  perturbation_pct: 0.20
-  perturbation_n: 10
-
-# ─── Evaluation ──────────────────────────────────────────────────────────────
-evaluation:
-  benchmark: buy_and_hold_btc
-  monte_carlo_n: 1000
-  bootstrap_n: 500
-  regime_classification: returns_kmeans
-  n_regimes: 3
-
-# ─── Validation Stop Criteria ────────────────────────────────────────────────
-validation:
-  min_oos_sharpe: 0.8
-  max_is_oos_sharpe_gap: 0.3
-  max_single_fold_return_pct: 0.30
-  must_be_profitable_under_cost_stress: true
-  max_drawdown_limit_pct: 10.0
-  param_stability_sharpe_cv_max: 0.3
+    windows:
+      - name: covid_crash
+        start: "2020-03-01"
+        end:   "2020-05-31"
+      - name: luna_collapse
+        start: "2022-05-01"
+        end:   "2022-07-31"
+      - name: ftx_collapse
+        start: "2022-11-01"
+        end:   "2023-01-31"
+      - name: btc_bear_2022
+        start: "2022-01-01"
+        end:   "2022-12-31"
