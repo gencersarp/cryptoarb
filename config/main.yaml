@@ -50,6 +50,11 @@ data:
   start_date: "2020-01-01"
   end_date:   "2024-12-31"
   min_bars: 500
+  async_ingestion:
+    enabled: false
+    max_concurrency: 8
+    request_timeout_sec: 20
+    max_retries: 5
 
 # ── Strategies ───────────────────────────────────────────────
 strategies:
@@ -130,6 +135,9 @@ backtest:
     min_slippage_bps:       0.8
     max_slippage_bps:       18.0
     exchange_downtime_prob: 0.003
+    partial_fill_prob:      0.05
+    min_partial_fill_ratio: 0.5
+    latency_bps:            0.5
 
   risk:
     max_drawdown_pct:            10.0
@@ -137,6 +145,25 @@ backtest:
     per_strategy_capital_pct:    40.0
     max_total_leverage:           3.0
     margin_buffer_pct:           20.0
+    unrealized_kill_switch_pct:   8.0
+    max_leg_divergence_bps:      35.0
+    max_exchange_exposure_pct:   50.0
+
+live_screener:
+  enabled: true
+  top_n: 20
+  alert_webhook_url: ""
+  min_net_ev_usd: 0.0
+
+dex_funding_velocity:
+  hyperliquid:
+    enabled: true
+    depth_notional: 1200000
+    impact_beta: 0.00005
+  synthetix:
+    enabled: true
+    depth_notional: 500000
+    impact_beta: 0.00008
 
 # ── Parameter Search ─────────────────────────────────────────
 optimization:

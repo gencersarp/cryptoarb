@@ -85,6 +85,12 @@ class BacktestEngine:
                 capital = self._close_all(positions, row, capital, trades, ts,
                                            reason="max_drawdown_stop")
                 break
+            unrealized_total = sum(getattr(p, "pnl", 0.0) for p in positions.values())
+            kill_switch_pct = self.risk_cfg.get("unrealized_kill_switch_pct", 8.0)
+            if unrealized_total < 0 and (-unrealized_total / max(capital, 1.0) * 100) > kill_switch_pct:
+                logger.warning(f"Fold {fold_id} kill switch at bar {bar_i}. Force closing all positions.")
+                capital = self._close_all(positions, row, capital, trades, ts, reason="kill_switch")
+                break
 
             # ── Generate signals from previous bar (1-bar delay) ─────────
             for strategy in self.strategies:
@@ -191,6 +197,12 @@ class BacktestEngine:
         )
         if size <= 0:
             return capital
+        # Per-exchange exposure cap
+        max_exchange_exposure_pct = self.risk_cfg.get("max_exchange_exposure_pct", 50.0)
+        exchange_exposure = sum(p.notional for p in positions.values() if p.venue == sig.venue)
+        proposed_notional = size * price
+        if (exchange_exposure + proposed_notional) / max(capital, 1.0) * 100 > max_exchange_exposure_pct:
+            return capital
 
         venue_cfg = self.venue_cfgs.get(sig.venue,
                         {"maker_fee": 0.0002, "taker_fee": 0.0004})
@@ -203,6 +215,8 @@ class BacktestEngine:
             size, price, vol, adv, venue_cfg, ts
         )
         if fill.missed:
+            return capital
+        if fill.filled_size <= 0:
             return capital
 
         cost = fill.fee + fill.slippage

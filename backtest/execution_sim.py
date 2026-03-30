@@ -51,6 +51,9 @@ class ExecutionSimulator:
         self.min_slip_bps    = cfg.get("min_slippage_bps", 0.5)
         self.max_slip_bps    = cfg.get("max_slippage_bps", 50.0)
         self.downtime_prob   = cfg.get("exchange_downtime_prob", 0.005)
+        self.partial_fill_prob = cfg.get("partial_fill_prob", 0.0)
+        self.min_partial_fill_ratio = cfg.get("min_partial_fill_ratio", 0.5)
+        self.latency_bps = cfg.get("latency_bps", 0.0)
         self._rng            = np.random.default_rng(self.seed)
 
     # ── Main fill simulation ─────────────────────────────────────────────
@@ -87,9 +90,17 @@ class ExecutionSimulator:
                    else venue_cfg.get("taker_fee", 0.0004)
         fee_rate *= fee_mult
 
+        # Partial fill simulation for non-forced orders.
+        fill_ratio = 1.0
+        if not force_taker and self.partial_fill_prob > 0 and self._rng.random() < self.partial_fill_prob:
+            lo = max(0.05, min(1.0, self.min_partial_fill_ratio))
+            fill_ratio = float(self._rng.uniform(lo, 1.0))
+        filled_size = size * fill_ratio
+
         # Slippage
-        notional = size * ref_price
+        notional = filled_size * ref_price
         slip_bps = self._compute_slippage(realized_vol, notional, adv_usd)
+        slip_bps += self.latency_bps
         slip_bps = np.clip(slip_bps * slip_mult,
                            self.min_slip_bps, self.max_slip_bps)
         slip_usd = notional * slip_bps / 10_000
@@ -103,7 +114,7 @@ class ExecutionSimulator:
         return Fill(
             signal_id=signal_id, venue=venue, asset=asset,
             market=market, side=side,
-            requested_size=size, filled_size=size,
+            requested_size=size, filled_size=filled_size,
             avg_fill_price=fill_price, fee=fee_usd, slippage=slip_usd,
             is_maker=is_maker, missed=False
         )

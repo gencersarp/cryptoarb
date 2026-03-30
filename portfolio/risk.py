@@ -23,6 +23,9 @@ class RiskEngine:
         self.daily_loss_pct    = cfg.get("daily_loss_limit_pct",    3.0)
         self.max_leverage      = cfg.get("max_total_leverage",       3.0)
         self.margin_buffer_pct = cfg.get("margin_buffer_pct",       20.0)
+        self.unrealized_kill_switch_pct = cfg.get("unrealized_kill_switch_pct", 8.0)
+        self.max_leg_divergence_bps = cfg.get("max_leg_divergence_bps", 35.0)
+        self.max_exchange_exposure_pct = cfg.get("max_exchange_exposure_pct", 50.0)
         self.peak_equity: float = 0.0
         self.daily_start_equity: float = 0.0
         self.bar_count: int = 0
@@ -57,6 +60,19 @@ class RiskEngine:
         # Margin buffer
         margin_used_pct = total_notional / max(equity, 1.0) * 100
         flags["margin_buffer_low"] = margin_used_pct > (100 - self.margin_buffer_pct)
+
+        unrealized_total = sum(getattr(p, "pnl", 0.0) for p in positions.values())
+        unrealized_pct = (-unrealized_total / max(equity, 1.0)) * 100 if unrealized_total < 0 else 0.0
+        flags["kill_switch_breached"] = unrealized_pct > self.unrealized_kill_switch_pct
+
+        # Exchange concentration control
+        exposure_by_exchange = {}
+        for p in positions.values():
+            exposure_by_exchange[p.venue] = exposure_by_exchange.get(p.venue, 0.0) + p.notional
+        max_exchange_exposure_pct = 0.0
+        if exposure_by_exchange:
+            max_exchange_exposure_pct = max(v / max(equity, 1.0) * 100 for v in exposure_by_exchange.values())
+        flags["exchange_exposure_breached"] = max_exchange_exposure_pct > self.max_exchange_exposure_pct
 
         self.bar_count += 1
         return flags

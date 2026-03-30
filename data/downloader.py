@@ -286,6 +286,16 @@ ASSET_MAP = {
         "BTC": {"spot": "BTC-USDT", "perp": "BTC-USDT-SWAP"},
         "ETH": {"spot": "ETH-USDT", "perp": "ETH-USDT-SWAP"},
     },
+    # Placeholder mappings prepared for future expansion; ingestion can consume
+    # normalized files with these keys without breaking existing flows.
+    "hyperliquid": {
+        "BTC": {"perp": "BTC"},
+        "ETH": {"perp": "ETH"},
+    },
+    "synthetix": {
+        "BTC": {"perp": "sBTC"},
+        "ETH": {"perp": "sETH"},
+    },
 }
 
 INTERVAL_MAP = {

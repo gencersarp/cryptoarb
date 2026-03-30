@@ -30,6 +30,7 @@ from backtest.execution_sim import ExecutionSimulator
 from strategies.base import BaseStrategy, Position, Side, Market
 from portfolio.analytics import compute_metrics
 from portfolio.risk import RiskEngine
+from portfolio.health_monitor import HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,18 @@ class PaperTrader:
         self.exec_sim    = ExecutionSimulator(cfg.get("execution", {}))
         self.risk_engine = RiskEngine(cfg.get("risk", {}))
         self.initial_cap = cfg.get("initial_capital", 100_000)
+        self.last_leg_divergence_bps = 0.0
+        self._halted = False
+        hm_cfg = cfg.get("health_monitor", {"enabled": False})
+        self.health_monitor = None
+        if hm_cfg.get("enabled", False):
+            self.health_monitor = HealthMonitor(
+                poll_seconds=float(hm_cfg.get("poll_seconds", 2.0)),
+                divergence_threshold_bps=float(cfg.get("risk", {}).get("max_leg_divergence_bps", 35.0)),
+                fetch_metrics=self._health_metrics,
+                on_emergency_close=self._emergency_close_callback,
+            )
+            self.health_monitor.start()
 
         self._state: Dict[str, Any] = self._load_state()
         self._bar_history: List[pd.Series] = []
@@ -76,11 +89,20 @@ class PaperTrader:
 
         # Risk flags
         flags = self.risk_engine.update(capital, positions)
+        if flags.get("kill_switch_breached"):
+            logger.warning("PAPER: kill switch breached — closing all and halting.")
+            capital = self._close_all(positions, row, capital, trades, ts, fills)
+            self._halted = True
+            self._persist(capital, positions, trades, fills, equity_h)
+            return {"action": "halt", "reason": "kill_switch", "flags": flags}
         if flags.get("max_drawdown_breached"):
             logger.warning("PAPER: max drawdown breached — closing all.")
             capital = self._close_all(positions, row, capital, trades, ts, fills)
             self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "max_drawdown", "flags": flags}
+        if self._halted:
+            self._persist(capital, positions, trades, fills, equity_h)
+            return {"action": "halt", "reason": "trading_halted", "flags": flags}
 
         # 1-bar delay parity with backtest: generate on previous bar, fill now.
         if bar_i >= 1:
@@ -125,6 +147,7 @@ class PaperTrader:
         mtm = capital + sum(
             self._mark(p, row) for p in positions.values()
         )
+        self.last_leg_divergence_bps = self._compute_leg_divergence_bps(positions, row)
         equity_h.append(mtm)
 
         self._persist(capital, positions, trades, fills, equity_h)
@@ -148,6 +171,7 @@ class PaperTrader:
             os.remove(self.state_file)
         self._state = self._load_state()
         self._bar_history = []
+        self._halted = False
 
     # ── Internals ───────────────────────────────────────────────────────────
 
@@ -313,3 +337,29 @@ class PaperTrader:
                 metadata=d.get("metadata", {})
             )
         return positions
+
+    def _compute_leg_divergence_bps(self, positions: Dict[str, Position], row: pd.Series) -> float:
+        by_pair = {}
+        for p in positions.values():
+            pair = p.metadata.get("pair_id")
+            if not pair:
+                continue
+            by_pair.setdefault(pair, []).append(p)
+        worst = 0.0
+        for plist in by_pair.values():
+            if len(plist) < 2:
+                continue
+            p0 = plist[0]
+            p1 = plist[1]
+            c0 = float(row.get(f"{p0.venue}_{p0.asset}_{p0.market.value}_close", p0.entry_price) or p0.entry_price)
+            c1 = float(row.get(f"{p1.venue}_{p1.asset}_{p1.market.value}_close", p1.entry_price) or p1.entry_price)
+            d = abs(c0 - c1) / max((c0 + c1) * 0.5, 1e-9) * 10_000
+            worst = max(worst, d)
+        return worst
+
+    def _health_metrics(self) -> Dict[str, Any]:
+        return {"leg_divergence_bps": self.last_leg_divergence_bps}
+
+    def _emergency_close_callback(self, reason: str) -> None:
+        self._halted = True
+        logger.warning(f"PAPER emergency close triggered by health monitor: {reason}")

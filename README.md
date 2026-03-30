@@ -61,6 +61,12 @@ python scripts/calibrate_execution.py --paper-state paper_state.json --out-json 
 
 # 14. Final comparison report (robust eval + ablations)
 python scripts/generate_comparison_report.py --robust-csv ../results_robust_eval.csv --ablation-json ../ablation_results.json --out-csv ../final_comparison_report.csv
+
+# 15. Async downloader (compatible with existing raw layout)
+python scripts/async_download_data.py --assets BTC ETH --start 2021-01-01 --end 2024-12-31 --raw-dir data/raw --max-concurrency 8
+
+# 16. Live screener for cross-exchange EV ranking
+python scripts/run_live_screener.py --panel-csv ../data/BTCUSDT_perp_bars.csv --asset BTC --venues binance bybit okx --notional-usd 50000
 ```
 
 ---
