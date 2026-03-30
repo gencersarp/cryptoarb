@@ -159,7 +159,14 @@ class BacktestEngine:
             if len(equity) >= 2 and equity[-2] > 0:
                 daily_loss = (equity[-1] - equity[-2]) / equity[-2] * 100
                 if daily_loss < -self.risk_cfg.get("daily_loss_limit_pct", 3.0):
-                    logger.warning(f"Daily loss limit hit at bar {bar_i}")
+                    logger.warning(
+                        f"Fold {fold_id} daily loss limit hit at bar {bar_i}. "
+                        "Force closing all positions."
+                    )
+                    capital = self._close_all(
+                        positions, row, capital, trades, ts, reason="daily_loss_limit"
+                    )
+                    break
 
         # Force close remaining at end of test window
         if positions:

@@ -68,6 +68,9 @@ class PaperTrader:
 
         self._state: Dict[str, Any] = self._load_state()
         self._bar_history: List[pd.Series] = []
+        self._orphan_cfg = cfg.get("orphan_protection", {})
+        self._orphan_enabled = bool(self._orphan_cfg.get("enabled", True))
+        self._orphan_max_age_bars = int(self._orphan_cfg.get("max_unhedged_bars", 1))
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -100,6 +103,12 @@ class PaperTrader:
             capital = self._close_all(positions, row, capital, trades, ts, fills)
             self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "max_drawdown", "flags": flags}
+        if flags.get("daily_loss_breached"):
+            logger.warning("PAPER: daily loss limit breached — closing all and halting.")
+            capital = self._close_all(positions, row, capital, trades, ts, fills)
+            self._halted = True
+            self._persist(capital, positions, trades, fills, equity_h)
+            return {"action": "halt", "reason": "daily_loss_limit", "flags": flags}
         if self._halted:
             self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "trading_halted", "flags": flags}
@@ -142,6 +151,11 @@ class PaperTrader:
                 pos.pnl -= borrow
                 capital -= borrow
             pos.bars_held += 1
+
+        if self._orphan_enabled and positions:
+            capital = self._enforce_orphan_protection(
+                positions, row, capital, trades, ts, fills
+            )
 
         # MTM equity
         mtm = capital + sum(
@@ -274,6 +288,39 @@ class PaperTrader:
         for sid in list(positions.keys()):
             capital = self._close_position(sid, positions, row, capital,
                                             trades, ts, reason="halt", fills=fills)
+        return capital
+
+    def _enforce_orphan_protection(self, positions, row, capital, trades, ts, fills):
+        by_pair = {}
+        for p in positions.values():
+            pair = p.metadata.get("pair_id")
+            if not pair:
+                continue
+            by_pair.setdefault(pair, []).append(p)
+
+        for pair_id, legs in by_pair.items():
+            if len(legs) >= 2:
+                continue
+            orphan_leg = legs[0]
+            if orphan_leg.bars_held <= self._orphan_max_age_bars:
+                continue
+            logger.warning(
+                "PAPER orphan protection: closing unhedged leg %s for pair %s",
+                orphan_leg.signal_id,
+                pair_id,
+            )
+            capital = self._close_position(
+                orphan_leg.signal_id,
+                positions,
+                row,
+                capital,
+                trades,
+                ts,
+                reason="orphan_leg_protection",
+                fills=fills,
+            )
+            self._halted = True
+
         return capital
 
     @staticmethod

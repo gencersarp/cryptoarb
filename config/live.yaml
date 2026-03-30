@@ -46,3 +46,7 @@ risk:
   max_drawdown_pct:     5.0
   daily_loss_limit_pct: 2.0
   halt_on_consecutive_losses: 3
+
+orphan_protection:
+  enabled: true
+  max_unhedged_bars: 1

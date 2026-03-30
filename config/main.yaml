@@ -149,6 +149,10 @@ backtest:
     max_leg_divergence_bps:      35.0
     max_exchange_exposure_pct:   80.0
 
+  orphan_protection:
+    enabled: true
+    max_unhedged_bars: 1
+
 live_screener:
   enabled: true
   top_n: 20

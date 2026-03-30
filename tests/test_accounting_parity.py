@@ -29,6 +29,7 @@ def _cfg():
     return {
         "initial_capital": 100_000.0,
         "risk": {"max_drawdown_pct": 50.0, "daily_loss_limit_pct": 50.0, "per_strategy_capital_pct": 40.0},
+        "orphan_protection": {"enabled": False},
         "execution": {
             "seed": 7,
             "maker_fill_prob": 0.0,
@@ -78,4 +79,3 @@ def test_backtest_paper_accounting_parity():
     rpt = trader.report()
     # Same accounting model should keep equity return in close range.
     assert abs(bt["total_return"] - rpt["total_return"]) < 0.02
-
