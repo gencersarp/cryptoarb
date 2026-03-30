@@ -102,7 +102,12 @@ def main() -> None:
     }
     base_cfg = {
         "initial_capital": 100_000.0,
-        "risk": {"max_drawdown_pct": 35.0, "daily_loss_limit_pct": 15.0, "per_strategy_capital_pct": 50.0},
+        "risk": {
+            "max_drawdown_pct": 35.0,
+            "daily_loss_limit_pct": 15.0,
+            "per_strategy_capital_pct": 80.0,
+            "max_exchange_exposure_pct": 80.0,
+        },
         "execution": execution_cfg[args.execution_profile],
     }
     venue_cfg = {"binance": {"maker_fee": 0.0002, "taker_fee": 0.0004, "borrow_rate_annual": 0.05}}

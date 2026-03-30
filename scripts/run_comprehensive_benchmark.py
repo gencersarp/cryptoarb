@@ -30,11 +30,11 @@ def _cfg_live_like() -> Dict[str, Any]:
         "risk": {
             "max_drawdown_pct": 10.0,
             "daily_loss_limit_pct": 3.0,
-            "per_strategy_capital_pct": 40.0,
+            "per_strategy_capital_pct": 80.0,
             "max_total_leverage": 3.0,
             "margin_buffer_pct": 20.0,
             "unrealized_kill_switch_pct": 8.0,
-            "max_exchange_exposure_pct": 50.0,
+            "max_exchange_exposure_pct": 80.0,
         },
         "execution": {
             "seed": 42,

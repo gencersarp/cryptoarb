@@ -59,7 +59,12 @@ def _base_cfg(profile: str) -> Dict[str, Any]:
     }
     return {
         "initial_capital": 100_000.0,
-        "risk": {"max_drawdown_pct": 35.0, "daily_loss_limit_pct": 15.0, "per_strategy_capital_pct": 50.0},
+        "risk": {
+            "max_drawdown_pct": 35.0,
+            "daily_loss_limit_pct": 15.0,
+            "per_strategy_capital_pct": 80.0,
+            "max_exchange_exposure_pct": 80.0,
+        },
         "execution": execution_cfg[profile],
     }
 
