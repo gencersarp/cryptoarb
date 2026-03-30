@@ -63,15 +63,19 @@ strategies:
     enabled: true
     assets: [BTC, ETH]
     venues: [binance]
-    entry_funding_threshold: 0.00008  # ~8.76% annualized
-    exit_funding_threshold:  0.00004
-    min_annualized_yield:    0.03
-    max_hold_bars:           30
-    position_size_pct:       0.50
+    entry_funding_threshold: 0.0000535
+    exit_funding_threshold:  0.0000395
+    min_annualized_yield:    0.0015
+    max_hold_bars:           31
+    position_size_pct:       0.77
     max_open_positions:      2
     use_basis_filter:        false
-    basis_filter_z:          1.5      # only enter if basis not too stretched
+    basis_filter_z:          1.55
     hedge_with_spot:         true
+    min_funding_persistence_bars: 1
+    min_expected_edge_bps:   0.85
+    inventory_risk_bps:      0.71
+    expected_hold_bars:      6
 
   PerpPerpDiff:
     enabled: true
