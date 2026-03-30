@@ -121,10 +121,9 @@ def test_paper_orphan_leg_protection_closes_unhedged_pair():
     trader.tick(rows[0])  # warmup
     trader.tick(rows[1])  # entry fill
     trader.tick(rows[2])  # orphan age -> 1
-    trader.tick(rows[3])  # orphan protection should trigger
-    out = trader.tick(rows[3])  # halted state is observed on next tick
+    out = trader.tick(rows[3])  # orphan protection should trigger immediately
 
     assert out.get("action") == "halt"
-    assert out.get("reason") in {"trading_halted", "daily_loss_limit", "max_drawdown"}
+    assert out.get("reason") == "orphan_leg_protection"
     assert len(trader._state.get("positions", {})) == 0
     assert any(t.get("reason") == "orphan_leg_protection" for t in trader._state.get("trades", []))

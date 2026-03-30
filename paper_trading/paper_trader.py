@@ -55,6 +55,7 @@ class PaperTrader:
         self.initial_cap = cfg.get("initial_capital", 100_000)
         self.last_leg_divergence_bps = 0.0
         self._halted = False
+        self._halt_reason = ""
         hm_cfg = cfg.get("health_monitor", {"enabled": False})
         self.health_monitor = None
         if hm_cfg.get("enabled", False):
@@ -96,22 +97,25 @@ class PaperTrader:
             logger.warning("PAPER: kill switch breached — closing all and halting.")
             capital = self._close_all(positions, row, capital, trades, ts, fills)
             self._halted = True
+            self._halt_reason = "kill_switch"
             self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "kill_switch", "flags": flags}
         if flags.get("max_drawdown_breached"):
             logger.warning("PAPER: max drawdown breached — closing all.")
             capital = self._close_all(positions, row, capital, trades, ts, fills)
+            self._halt_reason = "max_drawdown"
             self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "max_drawdown", "flags": flags}
         if flags.get("daily_loss_breached"):
             logger.warning("PAPER: daily loss limit breached — closing all and halting.")
             capital = self._close_all(positions, row, capital, trades, ts, fills)
             self._halted = True
+            self._halt_reason = "daily_loss_limit"
             self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "daily_loss_limit", "flags": flags}
         if self._halted:
             self._persist(capital, positions, trades, fills, equity_h)
-            return {"action": "halt", "reason": "trading_halted", "flags": flags}
+            return {"action": "halt", "reason": self._halt_reason or "trading_halted", "flags": flags}
 
         # 1-bar delay parity with backtest: generate on previous bar, fill now.
         if bar_i >= 1:
@@ -156,6 +160,13 @@ class PaperTrader:
             capital = self._enforce_orphan_protection(
                 positions, row, capital, trades, ts, fills
             )
+            if self._halted:
+                self._persist(capital, positions, trades, fills, equity_h)
+                return {
+                    "action": "halt",
+                    "reason": self._halt_reason or "orphan_leg_protection",
+                    "flags": flags,
+                }
 
         # MTM equity
         mtm = capital + sum(
@@ -186,6 +197,7 @@ class PaperTrader:
         self._state = self._load_state()
         self._bar_history = []
         self._halted = False
+        self._halt_reason = ""
 
     # ── Internals ───────────────────────────────────────────────────────────
 
@@ -320,6 +332,7 @@ class PaperTrader:
                 fills=fills,
             )
             self._halted = True
+            self._halt_reason = "orphan_leg_protection"
 
         return capital
 
@@ -409,4 +422,5 @@ class PaperTrader:
 
     def _emergency_close_callback(self, reason: str) -> None:
         self._halted = True
+        self._halt_reason = "health_monitor_emergency"
         logger.warning(f"PAPER emergency close triggered by health monitor: {reason}")
