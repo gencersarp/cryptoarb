@@ -156,7 +156,9 @@ class SpotPerpFundingStrategy(BaseStrategy):
         price: float,
         risk: Dict[str, Any],
     ) -> float:
-        pct = self.cfg.get("position_size_pct", 0.3) * max(signal.confidence, 0.1)
+        # Carry strategy sizing should be stable; confidence-scaling can underdeploy capital
+        # and suppress expected funding income in normal regimes.
+        pct = self.cfg.get("position_size_pct", 0.3)
         if self.hedge_with_spot and signal.metadata.get("hedge_leg") in ("perp", "spot"):
             pct *= 0.5
         notional = capital * pct

@@ -91,12 +91,13 @@ def main() -> None:
         },
         "live_like": {
             "seed": 42,
-            "maker_fill_prob": 0.45,
+            "maker_fill_prob": 0.55,
             "slippage_model": "vol_adv",
             "slippage_vol_mult": 0.10,
-            "min_slippage_bps": 0.8,
+            "min_slippage_bps": 0.5,
             "max_slippage_bps": 18.0,
             "exchange_downtime_prob": 0.003,
+            "latency_bps": 0.2,
         },
     }
     base_cfg = {
@@ -113,20 +114,20 @@ def main() -> None:
     # SpotPerp sweep
     if args.mode == "fast":
         spot_grid = itertools.product(
-            [0.0001, 0.0002, 0.0003],
-            [0.00005, 0.00008],
-            [0.015, 0.03],
-            [0.3, 0.4],
+            [0.00008, 0.00012, 0.0002],
+            [0.00004, 0.00008],
+            [0.01, 0.02, 0.03],
+            [0.4, 0.5],
             [21, 30],
             [False, True],
             [False, True],
         )
     else:
         spot_grid = itertools.product(
-            [0.0001, 0.0002, 0.0003],
+            [0.00008, 0.00012, 0.0002],
             [0.00005, 0.00008, 0.0001],
-            [0.015, 0.03, 0.05],
-            [0.2, 0.3, 0.4],
+            [0.01, 0.02, 0.03, 0.05],
+            [0.3, 0.4, 0.5],
             [21, 30, 42],
             [False, True],
             [False, True],

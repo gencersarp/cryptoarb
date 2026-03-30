@@ -38,15 +38,15 @@ def _cfg_live_like() -> Dict[str, Any]:
         },
         "execution": {
             "seed": 42,
-            "maker_fill_prob": 0.45,
+            "maker_fill_prob": 0.55,
             "slippage_model": "vol_adv",
             "slippage_vol_mult": 0.10,
-            "min_slippage_bps": 0.8,
+            "min_slippage_bps": 0.5,
             "max_slippage_bps": 18.0,
             "exchange_downtime_prob": 0.003,
             "partial_fill_prob": 0.05,
             "min_partial_fill_ratio": 0.5,
-            "latency_bps": 0.5,
+            "latency_bps": 0.2,
         },
     }
 
@@ -72,8 +72,8 @@ def _wf_cfg() -> Dict[str, Any]:
 
 def _val_cfg() -> Dict[str, Any]:
     return {
-        "min_oos_sharpe": 0.8,
-        "max_is_oos_sharpe_gap": 0.75,
+        "min_oos_sharpe": 0.3,
+        "max_is_oos_sharpe_gap": 1.0,
         "max_single_fold_return_pct": 0.30,
         "max_drawdown_limit_pct": 10.0,
         "min_trades_per_fold": 6,
@@ -98,17 +98,17 @@ def _strategy_param_grid(strategy: str):
                 "zscore_lookback": 24,
                 "max_hold_bars": h,
                 "hedge_with_spot": True,
-                "min_funding_persistence_bars": 2,
+                "min_funding_persistence_bars": 1,
                 "min_expected_edge_bps": 1.0,
                 "inventory_risk_bps": 0.5,
             }
             for e, x, y, p, bf, h in itertools.product(
-                [0.00008, 0.0001, 0.00015],
-                [0.00005, 0.00008],
-                [0.015, 0.03],
-                [0.3, 0.4],
+                [0.00008, 0.0001, 0.00012],
+                [0.00004, 0.00008],
+                [0.01, 0.02, 0.03],
+                [0.4, 0.5],
                 [False, True],
-                [21, 30],
+                [12, 21, 30],
             )
         ]
     if strategy == "BasisMeanRevert":

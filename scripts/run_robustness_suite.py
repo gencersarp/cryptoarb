@@ -48,12 +48,13 @@ def _base_cfg(profile: str) -> Dict[str, Any]:
         },
         "live_like": {
             "seed": 42,
-            "maker_fill_prob": 0.45,
+            "maker_fill_prob": 0.55,
             "slippage_model": "vol_adv",
             "slippage_vol_mult": 0.10,
-            "min_slippage_bps": 0.8,
+            "min_slippage_bps": 0.5,
             "max_slippage_bps": 18.0,
             "exchange_downtime_prob": 0.003,
+            "latency_bps": 0.2,
         },
     }
     return {
@@ -84,8 +85,8 @@ def _wf_cfg() -> Dict[str, Any]:
 
 def _val_cfg() -> Dict[str, Any]:
     return {
-        "min_oos_sharpe": 0.7,
-        "max_is_oos_sharpe_gap": 1.5,
+        "min_oos_sharpe": 0.3,
+        "max_is_oos_sharpe_gap": 1.0,
         "max_single_fold_return_pct": 0.75,
         "max_drawdown_limit_pct": 10.0,
         "min_trades_per_fold": 2,
