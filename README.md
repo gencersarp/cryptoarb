@@ -67,6 +67,9 @@ python scripts/async_download_data.py --assets BTC ETH --start 2021-01-01 --end 
 
 # 16. Live screener for cross-exchange EV ranking
 python scripts/run_live_screener.py --panel-csv ../data/BTCUSDT_perp_bars.csv --asset BTC --venues binance bybit okx --notional-usd 50000
+
+# 17. Comprehensive multi-asset strategy benchmark (anti-overfit gates)
+python scripts/run_comprehensive_benchmark.py --data-dir ../data --assets BTC ETH SOL AVAX LINK DOGE --strategies SpotPerpFunding BasisMeanRevert PerpPerpDiff --out-csv ../comprehensive_benchmark_results.csv --out-json ../comprehensive_benchmark_results.json
 ```
 
 ---
