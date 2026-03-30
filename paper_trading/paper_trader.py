@@ -71,14 +71,15 @@ class PaperTrader:
         capital   = self._state["capital"]
         positions = self._deserialise_positions()
         trades    = self._state.setdefault("trades", [])
+        fills     = self._state.setdefault("fills", [])
         equity_h  = self._state.setdefault("equity_history", [capital])
 
         # Risk flags
         flags = self.risk_engine.update(capital, positions)
         if flags.get("max_drawdown_breached"):
             logger.warning("PAPER: max drawdown breached — closing all.")
-            capital = self._close_all(positions, row, capital, trades, ts)
-            self._persist(capital, positions, trades, equity_h)
+            capital = self._close_all(positions, row, capital, trades, ts, fills)
+            self._persist(capital, positions, trades, fills, equity_h)
             return {"action": "halt", "reason": "max_drawdown", "flags": flags}
 
         # 1-bar delay parity with backtest: generate on previous bar, fill now.
@@ -91,11 +92,11 @@ class PaperTrader:
                     if sig.side == Side.FLAT:
                         capital = self._close_position(
                             sig.signal_id, positions, row, capital, trades, ts,
-                            reason="strategy_exit"
+                            reason="strategy_exit", fills=fills
                         )
                     elif sig.signal_id not in positions:
                         capital = self._open_position(
-                            sig, strategy, row, capital, positions, ts
+                            sig, strategy, row, capital, positions, ts, fills
                         )
 
         # Funding accrual
@@ -126,7 +127,7 @@ class PaperTrader:
         )
         equity_h.append(mtm)
 
-        self._persist(capital, positions, trades, equity_h)
+        self._persist(capital, positions, trades, fills, equity_h)
         logger.info(f"PAPER bar {bar_i}: equity={mtm:.2f} "
                     f"open_positions={len(positions)}")
         return {"equity": mtm, "n_positions": len(positions), "flags": flags}
@@ -150,7 +151,7 @@ class PaperTrader:
 
     # ── Internals ───────────────────────────────────────────────────────────
 
-    def _open_position(self, sig, strategy, row, capital, positions, ts):
+    def _open_position(self, sig, strategy, row, capital, positions, ts, fills):
         price_col = (f"{sig.venue}_{sig.asset}_spot_close" if sig.market == Market.SPOT
                      else f"{sig.venue}_{sig.asset}_perp_close")
         price = float(row.get(price_col, row.get("perp_close", 0)) or 0)
@@ -169,6 +170,17 @@ class PaperTrader:
         )
         if fill.missed:
             logger.warning(f"PAPER: missed fill for {sig.signal_id}")
+            fills.append(
+                {
+                    "sid": sig.signal_id,
+                    "action": "open",
+                    "missed": True,
+                    "is_maker": False,
+                    "fee": 0.0,
+                    "slippage": 0.0,
+                    "ts": str(ts),
+                }
+            )
             return capital
         capital -= fill.fee + fill.slippage
         positions[sig.signal_id] = Position(
@@ -182,9 +194,20 @@ class PaperTrader:
         )
         logger.info(f"PAPER OPEN {sig.signal_id}: price={fill.avg_fill_price:.2f} "
                     f"size={fill.filled_size:.6f} cost={fill.fee+fill.slippage:.4f}")
+        fills.append(
+            {
+                "sid": sig.signal_id,
+                "action": "open",
+                "missed": False,
+                "is_maker": bool(fill.is_maker),
+                "fee": float(fill.fee),
+                "slippage": float(fill.slippage),
+                "ts": str(ts),
+            }
+        )
         return capital
 
-    def _close_position(self, sid, positions, row, capital, trades, ts, reason):
+    def _close_position(self, sid, positions, row, capital, trades, ts, reason, fills):
         pos = positions.get(sid)
         if pos is None:
             return capital
@@ -209,13 +232,24 @@ class PaperTrader:
         logger.info(f"PAPER CLOSE {sid}: net_pnl={net_pnl:.4f} reason={reason}")
         trades.append({"sid": sid, "net_pnl": net_pnl, "reason": reason,
                         "ts": str(ts)})
+        fills.append(
+            {
+                "sid": sid,
+                "action": "close",
+                "missed": bool(fill.missed),
+                "is_maker": bool(fill.is_maker),
+                "fee": float(fill.fee),
+                "slippage": float(fill.slippage),
+                "ts": str(ts),
+            }
+        )
         del positions[sid]
         return capital
 
-    def _close_all(self, positions, row, capital, trades, ts):
+    def _close_all(self, positions, row, capital, trades, ts, fills):
         for sid in list(positions.keys()):
             capital = self._close_position(sid, positions, row, capital,
-                                            trades, ts, reason="halt")
+                                            trades, ts, reason="halt", fills=fills)
         return capital
 
     @staticmethod
@@ -238,9 +272,9 @@ class PaperTrader:
             except Exception:
                 pass
         return {"version": self.STATE_VERSION, "capital": self.initial_cap,
-                "positions": {}, "trades": [], "equity_history": [self.initial_cap]}
+                "positions": {}, "trades": [], "fills": [], "equity_history": [self.initial_cap]}
 
-    def _persist(self, capital, positions, trades, equity_h):
+    def _persist(self, capital, positions, trades, fills, equity_h):
         serialised_pos = {}
         for sid, pos in positions.items():
             serialised_pos[sid] = {
@@ -258,6 +292,7 @@ class PaperTrader:
             "capital":        capital,
             "positions":      serialised_pos,
             "trades":         trades[-500:],    # keep last 500
+            "fills":          fills[-2000:],
             "equity_history": equity_h[-2000:], # keep last 2000 bars
         }
         with open(self.state_file, "w") as f:

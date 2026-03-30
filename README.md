@@ -49,6 +49,18 @@ python scripts/run_param_matrix.py --data-dir ../data --asset BTC --output ../pa
 
 # 10. Live-like sweep (more realistic execution assumptions)
 python scripts/run_param_matrix.py --mode fast --execution-profile live_like --data-dir ../data --asset BTC --output ../param_matrix_results_live_like_btc.csv
+
+# 11. Canonical robustness suite (walk-forward + stress + robust selection)
+python scripts/run_robustness_suite.py --data-dir ../data --assets BTC ETH --strategy SpotPerpFunding --execution-profile live_like --n-trials 40 --output-json ../results_robust_eval.json --output-csv ../results_robust_eval.csv
+
+# 12. Go / no-go gate on robustness outputs
+python scripts/run_go_no_go.py --input-json ../results_robust_eval.json
+
+# 13. Calibrate execution assumptions from paper trading fills
+python scripts/calibrate_execution.py --paper-state paper_state.json --out-json ../execution_calibration.json
+
+# 14. Final comparison report (robust eval + ablations)
+python scripts/generate_comparison_report.py --robust-csv ../results_robust_eval.csv --ablation-json ../ablation_results.json --out-csv ../final_comparison_report.csv
 ```
 
 ---
