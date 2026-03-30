@@ -63,19 +63,19 @@ strategies:
     enabled: true
     assets: [BTC, ETH, SOL, AVAX, LINK, DOGE]
     venues: [binance]
-    entry_funding_threshold: 0.0000535
-    exit_funding_threshold:  0.00001
-    min_annualized_yield:    0.0015
-    max_hold_bars:           48
-    position_size_pct:       0.77
-    max_open_positions:      4
+    entry_funding_threshold: 0.000052876211346406115
+    exit_funding_threshold:  0.000011835523251968688
+    min_annualized_yield:    0.0012734056914755119
+    max_hold_bars:           53
+    position_size_pct:       0.7177723472027456
+    max_open_positions:      5
     use_basis_filter:        false
-    basis_filter_z:          1.55
+    basis_filter_z:          2.59593696733197
     hedge_with_spot:         true
     min_funding_persistence_bars: 1
-    min_expected_edge_bps:   0.85
-    inventory_risk_bps:      0.71
-    expected_hold_bars:      6
+    min_expected_edge_bps:   0.4246626668035578
+    inventory_risk_bps:      0.604620859490132
+    expected_hold_bars:      13
 
   PerpPerpDiff:
     enabled: true
