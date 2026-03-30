@@ -121,17 +121,18 @@ def _stress_cfg() -> Dict[str, Any]:
 def _param_space(strategy: str) -> Dict[str, Any]:
     if strategy == "SpotPerpFunding":
         return {
-            "entry_funding_threshold": ("float", 0.00005, 0.00025),
-            "exit_funding_threshold": ("float", 0.00003, 0.00012),
-            "min_annualized_yield": ("float", 0.005, 0.04),
-            "position_size_pct": ("float", 0.10, 0.30),
-            "max_hold_bars": ("int", 12, 40),
+            "entry_funding_threshold": ("float", 0.000015, 0.00015),
+            "exit_funding_threshold": ("float", 0.000005, 0.00008),
+            "min_annualized_yield": ("float", 0.0, 0.02),
+            "position_size_pct": ("float", 0.12, 0.45),
+            "max_hold_bars": ("int", 12, 48),
+            "max_open_positions": ("cat", [2, 3, 4, 5]),
             "use_basis_filter": ("cat", [False, True]),
-            "basis_filter_z": ("float", 1.2, 2.2),
+            "basis_filter_z": ("float", 1.2, 2.4),
             "min_funding_persistence_bars": ("cat", [1, 2]),
-            "min_expected_edge_bps": ("float", 0.0, 1.5),
-            "inventory_risk_bps": ("float", 0.3, 1.0),
-            "expected_hold_bars": ("int", 4, 12),
+            "min_expected_edge_bps": ("float", 0.0, 1.2),
+            "inventory_risk_bps": ("float", 0.2, 0.9),
+            "expected_hold_bars": ("int", 6, 16),
         }
     if strategy == "BasisMeanRevert":
         return {
@@ -164,6 +165,7 @@ def _build_strategy_cfg(strategy: str, params: Dict[str, Any], asset: str) -> Di
                 "min_annualized_yield": params["min_annualized_yield"],
                 "position_size_pct": params["position_size_pct"],
                 "max_hold_bars": params["max_hold_bars"],
+                "max_open_positions": params.get("max_open_positions", 2),
                 "use_basis_filter": params["use_basis_filter"],
                 "basis_filter_z": params["basis_filter_z"],
                 "zscore_lookback": 24,
