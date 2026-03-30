@@ -71,4 +71,5 @@ def test_walk_forward_outputs_robustness_diagnostics():
     assert out["fold_results"]
     assert "diagnostics" in out["pass_fail"]
     assert "avg_is_oos_sharpe_gap" in out["pass_fail"]["diagnostics"]
-
+    assert "positive_cost_stress_folds_pct" in out["pass_fail"]["diagnostics"]
+    assert "active_folds" in out["pass_fail"]["diagnostics"]

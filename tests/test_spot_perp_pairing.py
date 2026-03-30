@@ -32,6 +32,8 @@ def test_spot_perp_generates_paired_entry_and_exit_signals():
             "use_basis_filter": False,
             "zscore_lookback": 8,
             "hedge_with_spot": True,
+            "min_funding_persistence_bars": 2,
+            "min_expected_edge_bps": 0.0,
         }
     )
 

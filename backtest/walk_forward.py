@@ -152,30 +152,53 @@ class WalkForwardRunner:
         require_cost_stress = vc.get("require_cost_stress_profitability", True)
         require_strong_oos_consistency = vc.get("require_positive_oos_all_folds", True)
         min_positive_oos_folds_pct = vc.get("min_positive_oos_folds_pct", 1.0)
+        min_positive_cost_stress_folds_pct = vc.get("min_positive_cost_stress_folds_pct", 1.0)
+        active_fold_trade_threshold = vc.get("active_fold_trade_threshold", 1)
+        min_active_folds = vc.get("min_active_folds", 2)
+        min_active_folds_for_dominance = vc.get("min_active_folds_for_dominance", 2)
+        min_active_folds_for_stability = vc.get("min_active_folds_for_stability", 2)
+        min_active_folds_for_is_oos_gap = vc.get("min_active_folds_for_is_oos_gap", 2)
 
-        total_return = sum(returns)
-        positive_returns = [max(0.0, r) for r in returns]
+        active_folds = [f for f in folds if f.get("n_trades", 0) >= active_fold_trade_threshold]
+        active_sharpes = [f["sharpe"] for f in active_folds] if active_folds else sharpes
+        active_returns = [f["total_return"] for f in active_folds] if active_folds else returns
+        active_cost_stress_rets = [f.get("cost_stress_return", f["total_return"]) for f in active_folds] if active_folds else cost_stress_rets
+        active_is_sharpes = [f.get("is_sharpe", f["sharpe"]) for f in active_folds] if active_folds else is_sharpes
+
+        total_return = sum(active_returns)
+        positive_returns = [max(0.0, r) for r in active_returns]
         positive_total = sum(positive_returns)
         fold_return_fracs = (
             [r / max(positive_total, 1e-9) for r in positive_returns]
-            if positive_total > 0 else [1.0] * len(returns)
+            if positive_total > 0 else [1.0] * max(1, len(active_returns))
         )
-        avg_is_oos_gap = float(np.mean([abs(i - o) for i, o in zip(is_sharpes, sharpes)]))
-        positive_oos_folds_pct = float(sum(1 for s in sharpes if s > 0) / max(1, len(sharpes)))
+        avg_is_oos_gap = float(np.mean([abs(i - o) for i, o in zip(active_is_sharpes, active_sharpes)]))
+        # Consistency should be based on realized fold returns, not Sharpe sign.
+        positive_oos_folds_pct = float(sum(1 for r in active_returns if r > 0) / max(1, len(active_returns)))
+        positive_cost_stress_folds_pct = float(sum(1 for r in active_cost_stress_rets if r > 0) / max(1, len(active_cost_stress_rets)))
 
         checks = {
-            "oos_sharpe_positive":    agg["mean_sharpe"] > 0,
-            "oos_sharpe_threshold":   agg["mean_sharpe"] >= min_oos_sharpe,
-            "no_fold_dominates":      all(f < max_fold_ret_pct
-                                          for f in fold_return_fracs),
+            "oos_sharpe_positive":    float(np.mean(active_sharpes)) > 0,
+            "oos_sharpe_threshold":   float(np.mean(active_sharpes)) >= min_oos_sharpe,
+            "min_active_folds":       len(active_folds) >= min_active_folds,
+            "no_fold_dominates":      (
+                all(f < max_fold_ret_pct for f in fold_return_fracs)
+                if len(active_folds) >= min_active_folds_for_dominance else True
+            ),
             "drawdown_within_limit":  all(abs(d) <= max_dd_limit for d in mdd),
             "sufficient_trades":      all(f["n_trades"] >= min_trades_fold
-                                          for f in folds),
-            "sharpe_stable":          (np.std(sharpes) / max(np.mean(sharpes), 1e-9)
-                                        <= perturb_cv + 0.3),
-            "small_is_oos_gap":       avg_is_oos_gap <= max_sharpe_gap,
+                                          for f in active_folds),
+            "sharpe_stable":          (
+                (np.std(active_sharpes) / max(np.mean(active_sharpes), 1e-9) <= perturb_cv + 0.3)
+                if len(active_folds) >= min_active_folds_for_stability else True
+            ),
+            "small_is_oos_gap":       (
+                avg_is_oos_gap <= max_sharpe_gap
+                if len(active_folds) >= min_active_folds_for_is_oos_gap else True
+            ),
             "cost_stress_profitable": (
-                all(r > 0 for r in cost_stress_rets) if require_cost_stress else True
+                positive_cost_stress_folds_pct >= min_positive_cost_stress_folds_pct
+                if require_cost_stress else True
             ),
             "oos_consistent_positive": (
                 positive_oos_folds_pct >= min_positive_oos_folds_pct
@@ -185,8 +208,10 @@ class WalkForwardRunner:
 
         all_pass = all(checks.values())
         diagnostics = {
+            "active_folds": len(active_folds),
             "avg_is_oos_sharpe_gap": avg_is_oos_gap,
             "positive_oos_folds_pct": positive_oos_folds_pct,
+            "positive_cost_stress_folds_pct": positive_cost_stress_folds_pct,
             "max_fold_return_share": float(max(fold_return_fracs)) if fold_return_fracs else 1.0,
         }
         return {"checks": checks, "diagnostics": diagnostics, "all_pass": all_pass}

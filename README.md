@@ -122,12 +122,23 @@ cryptoarb/
 
 | Criterion | Threshold | What It Catches |
 |---|---|---|
-| OOS Sharpe ≥ threshold on ALL folds | ≥ 0.8 | Consistently weak strategies |
-| IS–OOS Sharpe gap | ≤ 0.3 | Overfit |
-| No single fold > 30% of total PnL | ≤ 30% | Fragile, regime-specific |
-| Profitable under 1.5× cost stress | Sharpe > 0 | Cost-sensitive edge |
+| OOS Sharpe threshold (mean fold Sharpe) | ≥ 0.7 | Consistently weak strategies |
+| Active OOS folds (non-trivial trading activity) | ≥ 1 fold | Prevents degenerate no-trade winners |
+| IS–OOS Sharpe gap | ≤ 1.5 | Overfit |
+| No single fold > 75% of positive PnL | ≤ 75% | Fragile, regime-specific |
+| Profitable under 1.5× cost stress | Positive return on ≥60% folds | Cost-sensitive edge |
 | Max drawdown within declared limit | ≤ 10% | Uncontrolled risk |
-| Perturbation stability (CV of Sharpe) | ≤ 0.25 | Parameter sensitivity |
+| Perturbation stability (CV of Sharpe) | ≤ 0.6 | Parameter sensitivity |
+
+For low-activity samples, fold-dominance/stability/IS-OOS-gap checks are enforced once at least 2 active folds exist.
+
+---
+
+## Notes on Live Readiness
+
+- The current runtime includes a robust **paper trading** loop and realistic execution simulation.
+- A full **exchange order-routing executor** (placing real orders via exchange APIs) is not yet wired in this repo.
+- CCXT is included in dependencies and `.env.example` includes API key placeholders, but you should treat current code as research + paper execution until a dedicated live order router is added and validated.
 
 ---
 

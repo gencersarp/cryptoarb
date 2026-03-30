@@ -275,7 +275,7 @@ class BacktestEngine:
             market=pos.market.value, entry_ts=pos.entry_ts, exit_ts=ts,
             entry_price=pos.entry_price, exit_price=exit_price,
             size=pos.size, gross_pnl=price_pnl,
-            funding_pnl=pos.pnl + fill.fee + fill.slippage,
+            funding_pnl=pos.pnl,
             fee=fill.fee, slippage=fill.slippage, borrow_cost=0.0,
             net_pnl=net_pnl, bars_held=pos.bars_held,
             exit_reason=reason, metadata=pos.metadata

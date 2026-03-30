@@ -39,7 +39,13 @@ class SpotPerpFundingStrategy(BaseStrategy):
         self.venues     = cfg.get("venues",                  ["binance"])
         self.assets     = cfg.get("assets",                  ["BTC", "ETH"])
         self.lb         = cfg.get("zscore_lookback",         48)
-        self.hedge_with_spot = cfg.get("hedge_with_spot", False)
+        self.hedge_with_spot = cfg.get("hedge_with_spot", True)
+        self.min_funding_persistence = cfg.get("min_funding_persistence_bars", 2)
+        self.min_expected_edge_bps = cfg.get("min_expected_edge_bps", 1.0)
+        self.inventory_risk_bps = cfg.get("inventory_risk_bps", 0.5)
+        self.expected_hold_bars = cfg.get("expected_hold_bars", 8)
+        self.fee_bps_per_side = cfg.get("fee_bps_per_side", 4.0)
+        self.slippage_bps_per_side = cfg.get("slippage_bps_per_side", 1.0)
 
     def generate_signals(self, panel: pd.DataFrame, bar_i: int,
                          open_positions: List[Position]) -> List[Signal]:
@@ -92,6 +98,14 @@ class SpotPerpFundingStrategy(BaseStrategy):
                     continue
                 if abs(ann_yield) < self.min_yield:
                     continue
+                # Persistence guard: require funding to hold sign and threshold for recent bars
+                fr_hist = panel[f"{venue}_{asset}_funding"].iloc[max(0, bar_i - self.min_funding_persistence + 1):bar_i + 1]
+                if len(fr_hist) < self.min_funding_persistence:
+                    continue
+                if not np.all(np.sign(fr_hist.values) == np.sign(fr)):
+                    continue
+                if not np.all(np.abs(fr_hist.values) >= self.entry_thr):
+                    continue
 
                 # Basis filter — skip if basis is extremely stretched
                 if self.use_basis:
@@ -100,6 +114,16 @@ class SpotPerpFundingStrategy(BaseStrategy):
                         bz = self._zscore(panel[basis_col].iloc[:bar_i+1], self.lb)
                         if abs(bz) > self.basis_z:
                             continue
+                # Entry edge gate: projected funding over expected hold horizon
+                # minus conservative round-trip execution + inventory costs.
+                edge_bps = abs(fr) * 10_000 * max(1, int(self.expected_hold_bars))
+                expected_cost_bps = (
+                    2.0 * float(self.fee_bps_per_side)
+                    + 2.0 * float(self.slippage_bps_per_side)
+                    + float(self.inventory_risk_bps)
+                )
+                if edge_bps - expected_cost_bps < self.min_expected_edge_bps:
+                    continue
 
                 perp_side = Side.SHORT if fr > 0 else Side.LONG
                 spot_side = Side.LONG if perp_side == Side.SHORT else Side.SHORT
@@ -110,7 +134,8 @@ class SpotPerpFundingStrategy(BaseStrategy):
                     market=Market.PERP, side=perp_side,
                     confidence=min(abs(fr) / self.entry_thr, 3.0) / 3.0,
                     metadata={"strategy": self.name, "funding_rate": fr,
-                               "ann_yield": ann_yield, "pair_id": pair_id, "hedge_leg": "perp"}
+                               "ann_yield": ann_yield, "pair_id": pair_id, "hedge_leg": "perp",
+                               "entry_edge_bps": edge_bps - expected_cost_bps}
                 ))
                 if self.hedge_with_spot:
                     signals.append(Signal(

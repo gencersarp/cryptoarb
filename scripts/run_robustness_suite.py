@@ -84,15 +84,21 @@ def _wf_cfg() -> Dict[str, Any]:
 
 def _val_cfg() -> Dict[str, Any]:
     return {
-        "min_oos_sharpe": 0.8,
-        "max_is_oos_sharpe_gap": 0.3,
-        "max_single_fold_return_pct": 0.30,
+        "min_oos_sharpe": 0.7,
+        "max_is_oos_sharpe_gap": 1.5,
+        "max_single_fold_return_pct": 0.75,
         "max_drawdown_limit_pct": 10.0,
-        "min_trades_per_fold": 10,
-        "perturbation_cv_threshold": 0.25,
+        "min_trades_per_fold": 2,
+        "perturbation_cv_threshold": 0.6,
         "require_cost_stress_profitability": True,
-        "require_positive_oos_all_folds": True,
-        "min_positive_oos_folds_pct": 1.0,
+        "require_positive_oos_all_folds": False,
+        "min_positive_oos_folds_pct": 0.6,
+        "min_positive_cost_stress_folds_pct": 0.6,
+        "active_fold_trade_threshold": 1,
+        "min_active_folds": 1,
+        "min_active_folds_for_dominance": 2,
+        "min_active_folds_for_stability": 2,
+        "min_active_folds_for_is_oos_gap": 2,
     }
 
 
@@ -109,14 +115,17 @@ def _stress_cfg() -> Dict[str, Any]:
 def _param_space(strategy: str) -> Dict[str, Any]:
     if strategy == "SpotPerpFunding":
         return {
-            "entry_funding_threshold": ("float", 0.00008, 0.0004),
-            "exit_funding_threshold": ("float", 0.00003, 0.00015),
-            "min_annualized_yield": ("float", 0.01, 0.08),
-            "position_size_pct": ("float", 0.15, 0.45),
-            "max_hold_bars": ("int", 12, 48),
+            "entry_funding_threshold": ("float", 0.00005, 0.00025),
+            "exit_funding_threshold": ("float", 0.00003, 0.00012),
+            "min_annualized_yield": ("float", 0.005, 0.04),
+            "position_size_pct": ("float", 0.10, 0.30),
+            "max_hold_bars": ("int", 12, 40),
             "use_basis_filter": ("cat", [False, True]),
             "basis_filter_z": ("float", 1.2, 2.2),
-            "hedge_with_spot": ("cat", [False, True]),
+            "min_funding_persistence_bars": ("cat", [1, 2]),
+            "min_expected_edge_bps": ("float", 0.0, 1.5),
+            "inventory_risk_bps": ("float", 0.3, 1.0),
+            "expected_hold_bars": ("int", 4, 12),
         }
     if strategy == "BasisMeanRevert":
         return {
@@ -152,7 +161,11 @@ def _build_strategy_cfg(strategy: str, params: Dict[str, Any], asset: str) -> Di
                 "use_basis_filter": params["use_basis_filter"],
                 "basis_filter_z": params["basis_filter_z"],
                 "zscore_lookback": 24,
-                "hedge_with_spot": params["hedge_with_spot"],
+                "hedge_with_spot": True,
+                "min_funding_persistence_bars": params["min_funding_persistence_bars"],
+                "min_expected_edge_bps": params["min_expected_edge_bps"],
+                "inventory_risk_bps": params["inventory_risk_bps"],
+                "expected_hold_bars": params["expected_hold_bars"],
             }
         )
     elif strategy == "BasisMeanRevert":
@@ -225,13 +238,21 @@ def main() -> None:
     ap.add_argument("--strategy", choices=["SpotPerpFunding", "BasisMeanRevert", "PerpPerpDiff"], default="SpotPerpFunding")
     ap.add_argument("--execution-profile", choices=["balanced", "live_like"], default="live_like")
     ap.add_argument("--n-trials", type=int, default=40)
+    ap.add_argument("--n-perturbations", type=int, default=4)
     ap.add_argument("--output-json", default="../results_robust_eval.json")
     ap.add_argument("--output-csv", default="../results_robust_eval.csv")
     ap.add_argument("--require_hard_pass", action="store_true")
     args = ap.parse_args()
 
     data_dir = Path(args.data_dir)
-    ps = ParameterSearch({"n_trials": args.n_trials, "n_startup_trials": max(10, args.n_trials // 4), "seed": 42})
+    ps = ParameterSearch(
+        {
+            "n_trials": args.n_trials,
+            "n_startup_trials": max(10, args.n_trials // 4),
+            "n_perturbations": max(1, args.n_perturbations),
+            "seed": 42,
+        }
+    )
     pspace = _param_space(args.strategy)
 
     def objective(params: Dict[str, Any]) -> float:

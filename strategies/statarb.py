@@ -20,7 +20,7 @@ Limitations (flagged honestly):
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.stattools import coint
@@ -44,6 +44,7 @@ class StatArbStrategy(BaseStrategy):
         self.venues         = cfg.get("venues",            ["binance"])
         self._beta:  Optional[float] = None
         self._last_coint_bar: int    = -999
+        self._base_position_size_pct = cfg.get("position_size_pct", 0.25)
 
     def generate_signals(self, panel: pd.DataFrame, bar_i: int,
                          open_positions: List[Position]) -> List[Signal]:
@@ -95,18 +96,29 @@ class StatArbStrategy(BaseStrategy):
         spread_s = pd.Series(spread)
         z = self._zscore(spread_s, min(self.zscore_lb, len(spread_s)))
 
-        sid = f"{self.name}_{venue}_BTCETH"
-        existing = next((p for p in open_positions if p.signal_id == sid), None)
+        pair_id = f"{self.name}_{venue}_BTCETH"
+        btc_sid = f"{pair_id}_BTC"
+        eth_sid = f"{pair_id}_ETH"
+        existing_btc = next((p for p in open_positions if p.signal_id == btc_sid), None)
+        existing_eth = next((p for p in open_positions if p.signal_id == eth_sid), None)
+        existing_pair = existing_btc is not None or existing_eth is not None
 
         # Exit
-        if existing is not None:
+        if existing_pair:
             if abs(z) > self.stop_z or abs(z) < self.exit_z:
                 reason = "stop_z" if abs(z) > self.stop_z else "z_revert"
-                signals.append(Signal(
-                    signal_id=sid, strategy=self.name,
-                    venue=venue, asset="BTC", market=Market.PERP,
-                    side=Side.FLAT, metadata={"reason": reason}
-                ))
+                if existing_btc is not None:
+                    signals.append(Signal(
+                        signal_id=btc_sid, strategy=self.name,
+                        venue=venue, asset="BTC", market=Market.PERP,
+                        side=Side.FLAT, metadata={"reason": reason, "pair_id": pair_id, "strategy": self.name}
+                    ))
+                if existing_eth is not None:
+                    signals.append(Signal(
+                        signal_id=eth_sid, strategy=self.name,
+                        venue=venue, asset="ETH", market=Market.PERP,
+                        side=Side.FLAT, metadata={"reason": reason, "pair_id": pair_id, "strategy": self.name}
+                    ))
             return signals
 
         n_open = len([p for p in open_positions
@@ -116,12 +128,50 @@ class StatArbStrategy(BaseStrategy):
         if abs(z) < self.entry_z:
             return signals
 
-        # z > 0 → spread high → BTC expensive relative to ETH → short BTC
-        side = Side.SHORT if z > 0 else Side.LONG
+        # z > 0 → spread high → BTC expensive relative to ETH → short BTC, long ETH
+        btc_side = Side.SHORT if z > 0 else Side.LONG
+        eth_side = Side.LONG if btc_side == Side.SHORT else Side.SHORT
+        beta_abs = max(abs(float(self._beta)), 1e-6)
+        btc_mult = 1.0
+        eth_mult = beta_abs
+        confidence = min(abs(z) / self.entry_z, 2.0) / 2.0
+
         signals.append(Signal(
-            signal_id=sid, strategy=self.name,
-            venue=venue, asset="BTC", market=Market.PERP, side=side,
-            confidence=min(abs(z) / self.entry_z, 2.0) / 2.0,
-            metadata={"strategy": self.name, "z": z, "beta": self._beta}
+            signal_id=btc_sid, strategy=self.name,
+            venue=venue, asset="BTC", market=Market.PERP, side=btc_side,
+            confidence=confidence,
+            metadata={
+                "strategy": self.name,
+                "pair_id": pair_id,
+                "z": z,
+                "beta": self._beta,
+                "leg": "btc",
+                "target_notional_mult": btc_mult,
+            }
+        ))
+        signals.append(Signal(
+            signal_id=eth_sid, strategy=self.name,
+            venue=venue, asset="ETH", market=Market.PERP, side=eth_side,
+            confidence=confidence,
+            metadata={
+                "strategy": self.name,
+                "pair_id": pair_id,
+                "z": z,
+                "beta": self._beta,
+                "leg": "eth",
+                "target_notional_mult": eth_mult,
+            }
         ))
         return signals
+
+    def compute_position_size(
+        self,
+        signal: Signal,
+        capital: float,
+        price: float,
+        risk: Dict[str, Any],
+    ) -> float:
+        pct = self._base_position_size_pct * max(signal.confidence, 0.1)
+        mult = float(signal.metadata.get("target_notional_mult", 1.0))
+        notional = capital * pct * max(mult, 0.0)
+        return max(notional / max(price, 1e-9), 0.0)
