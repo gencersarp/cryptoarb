@@ -116,6 +116,10 @@ backtest:
     test_ratio:            0.20
     randomize_start_offset: true
     offset_range_days:     15
+    compute_is_metrics: true
+    compute_cost_stress_metrics: true
+    cost_stress_fee_mult: 1.5
+    cost_stress_slip_mult: 1.5
 
   execution:
     seed: 42
@@ -151,9 +155,13 @@ validation:
   max_drawdown_limit_pct:     10.0
   min_trades_per_fold:        10
   perturbation_cv_threshold:  0.25
+  require_cost_stress_profitability: true
+  require_positive_oos_all_folds: true
+  min_positive_oos_folds_pct: 1.0
 
 # ── Stress Tests ─────────────────────────────────────────────
 stress_tests:
+  enabled: true
   funding_flip_shock:
     enabled:          true
     shock_multiplier: -3.0
@@ -166,6 +174,13 @@ stress_tests:
     enabled:      true
     fee_mult:     1.5
     slip_mult:    1.5
+
+  worst_case_composite:
+    enabled: true
+    funding_mult: -3.0
+    vol_mult: 3.0
+    fee_mult: 1.5
+    slip_mult: 1.5
 
   crisis_windows:
     enabled: true

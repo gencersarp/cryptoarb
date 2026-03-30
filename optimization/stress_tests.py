@@ -31,6 +31,8 @@ class StressTester:
 
     def run_all(self) -> Dict[str, Any]:
         results = {}
+        if not self.cfg.get("enabled", True):
+            return results
 
         if self.cfg.get("funding_flip_shock", {}).get("enabled", False):
             results["funding_flip_shock"] = self._funding_flip_shock()
@@ -43,6 +45,9 @@ class StressTester:
 
         if self.cfg.get("crisis_windows", {}).get("enabled", False):
             results["crisis_windows"] = self._crisis_windows()
+
+        if self.cfg.get("worst_case_composite", {}).get("enabled", False):
+            results["worst_case_composite"] = self._worst_case_composite()
 
         return results
 
@@ -122,5 +127,40 @@ class StressTester:
         n = len(panel)
         result = engine.run_fold(
             range(0, int(n * 0.6)), range(int(n * 0.6), n), fold_id=99
+        )
+        return {k: v for k, v in result.items() if k != "trades"}
+
+    def _worst_case_composite(self) -> Dict:
+        """
+        Composite stress:
+          - Funding flip + volatility spike + 1.5x costs in one run.
+        """
+        cfg = self.cfg.get("worst_case_composite", {})
+        funding_mult = cfg.get("funding_mult", -3.0)
+        vol_mult = cfg.get("vol_mult", 3.0)
+        fee_mult = cfg.get("fee_mult", 1.5)
+        slip_mult = cfg.get("slip_mult", 1.5)
+
+        panel = self.engine.panel.copy()
+        for c in [c for c in panel.columns if "funding" in c]:
+            panel[c] = panel[c] * funding_mult
+        for c in [c for c in panel.columns if "vol" in c]:
+            panel[c] = panel[c] * vol_mult
+
+        stressed_engine = copy.deepcopy(self.engine)
+        stressed_engine.panel = panel
+        stressed_venues = {}
+        for v, venue_cfg in stressed_engine.venue_cfgs.items():
+            sc = copy.deepcopy(venue_cfg)
+            sc["maker_fee"] *= fee_mult
+            sc["taker_fee"] *= fee_mult
+            stressed_venues[v] = sc
+        stressed_engine.venue_cfgs = stressed_venues
+        stressed_engine.exec_sim.slip_vol_mult *= slip_mult
+        stressed_engine.exec_sim.min_slip_bps *= slip_mult
+
+        n = len(panel)
+        result = stressed_engine.run_fold(
+            range(0, int(n * 0.6)), range(int(n * 0.6), n), fold_id=199
         )
         return {k: v for k, v in result.items() if k != "trades"}

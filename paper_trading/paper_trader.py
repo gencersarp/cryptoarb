@@ -195,7 +195,8 @@ class PaperTrader:
         if pos.side == Side.SHORT:
             price_pnl = -price_pnl
         net_pnl = price_pnl + pos.pnl - fill.fee - fill.slippage
-        capital += net_pnl + pos.size * pos.entry_price
+        # Align with backtest accounting: capital was not debited by entry notional.
+        capital += net_pnl
         logger.info(f"PAPER CLOSE {sid}: net_pnl={net_pnl:.4f} reason={reason}")
         trades.append({"sid": sid, "net_pnl": net_pnl, "reason": reason,
                         "ts": str(ts)})

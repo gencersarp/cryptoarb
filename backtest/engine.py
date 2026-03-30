@@ -251,7 +251,9 @@ class BacktestEngine:
             price_pnl = -price_pnl
 
         net_pnl = price_pnl + pos.pnl - fill.fee - fill.slippage
-        capital += net_pnl + pos.size * pos.entry_price  # return notional
+        # Entry notional is never removed from capital at open in this engine;
+        # only PnL and execution costs should hit capital at close.
+        capital += net_pnl
 
         trades.append(TradeRecord(
             signal_id=sid, venue=pos.venue, asset=pos.asset,

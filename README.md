@@ -43,6 +43,9 @@ python scripts/paper_trade.py --strategy SpotPerpFunding --config config/live.ya
 
 # 8. Unit tests
 pytest tests/ -v
+
+# 9. Multi-strategy parameter matrix sweep
+python scripts/run_param_matrix.py --data-dir ../data --asset BTC --output ../param_matrix_results.csv
 ```
 
 ---
