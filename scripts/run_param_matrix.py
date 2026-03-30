@@ -71,6 +71,8 @@ def main() -> None:
     ap.add_argument("--data-dir", default="../data")
     ap.add_argument("--asset", default="BTC")
     ap.add_argument("--output", default="../param_matrix_results.csv")
+    ap.add_argument("--execution-profile", choices=["balanced", "live_like"], default="balanced")
+    ap.add_argument("--mode", choices=["full", "fast"], default="fast")
     args = ap.parse_args()
 
     panel = load_panel(Path(args.data_dir), asset=args.asset)
@@ -78,17 +80,29 @@ def main() -> None:
     train_idx = range(0, int(n * 0.6))
     test_idx = range(int(n * 0.6), n)
 
-    base_cfg = {
-        "initial_capital": 100_000.0,
-        "risk": {"max_drawdown_pct": 20.0, "daily_loss_limit_pct": 10.0, "per_strategy_capital_pct": 40.0},
-        "execution": {
+    execution_cfg = {
+        "balanced": {
             "seed": 42,
-            "maker_fill_prob": 0.6,
+            "maker_fill_prob": 0.7,
             "slippage_model": "fixed",
-            "min_slippage_bps": 1.0,
-            "max_slippage_bps": 8.0,
+            "min_slippage_bps": 0.6,
+            "max_slippage_bps": 6.0,
             "exchange_downtime_prob": 0.0,
         },
+        "live_like": {
+            "seed": 42,
+            "maker_fill_prob": 0.45,
+            "slippage_model": "vol_adv",
+            "slippage_vol_mult": 0.10,
+            "min_slippage_bps": 0.8,
+            "max_slippage_bps": 18.0,
+            "exchange_downtime_prob": 0.003,
+        },
+    }
+    base_cfg = {
+        "initial_capital": 100_000.0,
+        "risk": {"max_drawdown_pct": 35.0, "daily_loss_limit_pct": 15.0, "per_strategy_capital_pct": 50.0},
+        "execution": execution_cfg[args.execution_profile],
     }
     venue_cfg = {"binance": {"maker_fee": 0.0002, "taker_fee": 0.0004, "borrow_rate_annual": 0.05}}
     v = "binance"
@@ -97,9 +111,27 @@ def main() -> None:
     rows = []
 
     # SpotPerp sweep
-    for entry, exit_, min_yield, pos in itertools.product(
-        [0.0002, 0.0003, 0.0004], [0.00008, 0.0001], [0.03, 0.05], [0.2, 0.3]
-    ):
+    if args.mode == "fast":
+        spot_grid = itertools.product(
+            [0.0001, 0.0002, 0.0003],
+            [0.00005, 0.00008],
+            [0.015, 0.03],
+            [0.3, 0.4],
+            [21, 30],
+            [False, True],
+            [False, True],
+        )
+    else:
+        spot_grid = itertools.product(
+            [0.0001, 0.0002, 0.0003],
+            [0.00005, 0.00008, 0.0001],
+            [0.015, 0.03, 0.05],
+            [0.2, 0.3, 0.4],
+            [21, 30, 42],
+            [False, True],
+            [False, True],
+        )
+    for entry, exit_, min_yield, pos, hold_bars, basis_filter, hedge_spot in spot_grid:
         strat = SpotPerpFundingStrategy(
             {
                 "assets": [a],
@@ -108,18 +140,30 @@ def main() -> None:
                 "exit_funding_threshold": exit_,
                 "min_annualized_yield": min_yield,
                 "position_size_pct": pos,
-                "max_open_positions": 1,
-                "use_basis_filter": True,
+                "max_open_positions": 2,
+                "use_basis_filter": basis_filter,
                 "basis_filter_z": 1.8,
                 "zscore_lookback": 24,
-                "max_hold_bars": 21,
+                "max_hold_bars": hold_bars,
+                "hedge_with_spot": hedge_spot,
             }
         )
         res = BacktestEngine([strat], panel, base_cfg, venue_cfg).run_fold(train_idx, test_idx, 1)
         rows.append(
             {
                 "strategy": "SpotPerpFunding",
-                "params": json.dumps({"entry": entry, "exit": exit_, "min_yield": min_yield, "pos": pos}),
+                "execution_profile": args.execution_profile,
+                "params": json.dumps(
+                    {
+                        "entry": entry,
+                        "exit": exit_,
+                        "min_yield": min_yield,
+                        "pos": pos,
+                        "max_hold_bars": hold_bars,
+                        "basis_filter": basis_filter,
+                        "hedge_with_spot": hedge_spot,
+                    }
+                ),
                 "sharpe": res["sharpe"],
                 "total_return": res["total_return"],
                 "max_drawdown": res["max_drawdown"],
@@ -128,7 +172,13 @@ def main() -> None:
         )
 
     # Basis sweep
-    for entry_z, exit_z, stop_z in itertools.product([1.5, 2.0, 2.5], [0.3, 0.5], [3.0, 3.5]):
+    basis_grid = itertools.product(
+        [1.5, 2.0] if args.mode == "fast" else [1.5, 2.0, 2.5],
+        [0.3, 0.5],
+        [3.0, 3.5],
+        [0.2, 0.25],
+    )
+    for entry_z, exit_z, stop_z, pos in basis_grid:
         strat = BasisMeanRevertStrategy(
             {
                 "assets": [a],
@@ -137,7 +187,7 @@ def main() -> None:
                 "entry_z": entry_z,
                 "exit_z": exit_z,
                 "stop_z": stop_z,
-                "position_size_pct": 0.25,
+                "position_size_pct": pos,
                 "max_open_positions": 1,
                 "max_hold_bars": 30,
             }
@@ -146,7 +196,8 @@ def main() -> None:
         rows.append(
             {
                 "strategy": "BasisMeanRevert",
-                "params": json.dumps({"entry_z": entry_z, "exit_z": exit_z, "stop_z": stop_z}),
+                "execution_profile": args.execution_profile,
+                "params": json.dumps({"entry_z": entry_z, "exit_z": exit_z, "stop_z": stop_z, "pos": pos}),
                 "sharpe": res["sharpe"],
                 "total_return": res["total_return"],
                 "max_drawdown": res["max_drawdown"],
@@ -172,6 +223,7 @@ def main() -> None:
         rows.append(
             {
                 "strategy": "PerpPerpDiff",
+                "execution_profile": args.execution_profile,
                 "params": json.dumps({"min_spread": min_spread, "entry_z": entry_z}),
                 "sharpe": res["sharpe"],
                 "total_return": res["total_return"],

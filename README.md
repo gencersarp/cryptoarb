@@ -46,6 +46,9 @@ pytest tests/ -v
 
 # 9. Multi-strategy parameter matrix sweep
 python scripts/run_param_matrix.py --data-dir ../data --asset BTC --output ../param_matrix_results.csv
+
+# 10. Live-like sweep (more realistic execution assumptions)
+python scripts/run_param_matrix.py --mode fast --execution-profile live_like --data-dir ../data --asset BTC --output ../param_matrix_results_live_like_btc.csv
 ```
 
 ---

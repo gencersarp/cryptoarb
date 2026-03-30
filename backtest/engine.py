@@ -106,19 +106,20 @@ class BacktestEngine:
                             sig, strategy, row, capital, positions, ts
                         )
 
-            # ── Accrue funding P&L on open positions ────────────────────
+            # ── Accrue funding / borrow on open positions ───────────────
             for sid, pos in list(positions.items()):
-                # Try venue-specific funding column first
-                fr_col = f"{pos.venue}_{pos.asset}_funding"
-                funding_rate = float(row.get(fr_col,
-                                    row.get("funding_rate", 0.0)) or 0.0)
-                if not np.isnan(funding_rate) and funding_rate != 0.0:
-                    f_pnl = ExecutionSimulator.compute_funding_pnl(
-                        pos.notional, funding_rate,
-                        "long" if pos.side == Side.LONG else "short"
-                    )
-                    pos.pnl += f_pnl
-                    capital += f_pnl
+                # Funding applies to perpetual positions only.
+                if pos.market == Market.PERP:
+                    fr_col = f"{pos.venue}_{pos.asset}_funding"
+                    funding_rate = float(row.get(fr_col,
+                                        row.get("funding_rate", 0.0)) or 0.0)
+                    if not np.isnan(funding_rate) and funding_rate != 0.0:
+                        f_pnl = ExecutionSimulator.compute_funding_pnl(
+                            pos.notional, funding_rate,
+                            "long" if pos.side == Side.LONG else "short"
+                        )
+                        pos.pnl += f_pnl
+                        capital += f_pnl
 
                 # Borrow cost for spot short
                 if pos.market == Market.SPOT and pos.side == Side.SHORT:

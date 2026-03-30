@@ -58,14 +58,15 @@ strategies:
     enabled: true
     assets: [BTC, ETH]
     venues: [binance]
-    entry_funding_threshold: 0.0003   # annualized / 3 = 8h rate threshold
-    exit_funding_threshold:  0.0001
-    min_annualized_yield:    0.05     # 5% annualized minimum
-    max_hold_bars:           21       # ~7 days at 8h bars
+    entry_funding_threshold: 0.0002   # annualized / 3 = 8h rate threshold
+    exit_funding_threshold:  0.00008
+    min_annualized_yield:    0.03
+    max_hold_bars:           30
     position_size_pct:       0.40     # 40% of capital per leg
     max_open_positions:      2
-    use_basis_filter:        true
+    use_basis_filter:        false
     basis_filter_z:          1.5      # only enter if basis not too stretched
+    hedge_with_spot:         true
 
   PerpPerpDiff:
     enabled: true
@@ -123,12 +124,12 @@ backtest:
 
   execution:
     seed: 42
-    maker_fill_prob:        0.60     # 60% chance of maker fill on limit orders
+    maker_fill_prob:        0.45
     slippage_model:         vol_adv  # vol_adv | fixed | zero
     slippage_vol_mult:      0.10     # slippage = vol * mult * sqrt(size/adv)
-    min_slippage_bps:       0.5
-    max_slippage_bps:       50.0
-    exchange_downtime_prob: 0.005    # 0.5% chance of missed fill per bar
+    min_slippage_bps:       0.8
+    max_slippage_bps:       18.0
+    exchange_downtime_prob: 0.003
 
   risk:
     max_drawdown_pct:            10.0

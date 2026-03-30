@@ -81,34 +81,43 @@ class PaperTrader:
             self._persist(capital, positions, trades, equity_h)
             return {"action": "halt", "reason": "max_drawdown", "flags": flags}
 
-        # Signals (use full bar history so strategies have context)
-        for strategy in self.strategies:
-            open_pos = list(positions.values())
-            signals  = strategy.generate_signals(panel, bar_i, open_pos)
+        # 1-bar delay parity with backtest: generate on previous bar, fill now.
+        if bar_i >= 1:
+            for strategy in self.strategies:
+                open_pos = list(positions.values())
+                signals  = strategy.generate_signals(panel, bar_i - 1, open_pos)
 
-            for sig in signals:
-                if sig.side == Side.FLAT:
-                    capital = self._close_position(
-                        sig.signal_id, positions, row, capital, trades, ts,
-                        reason="strategy_exit"
-                    )
-                elif sig.signal_id not in positions:
-                    capital = self._open_position(
-                        sig, strategy, row, capital, positions, ts
-                    )
+                for sig in signals:
+                    if sig.side == Side.FLAT:
+                        capital = self._close_position(
+                            sig.signal_id, positions, row, capital, trades, ts,
+                            reason="strategy_exit"
+                        )
+                    elif sig.signal_id not in positions:
+                        capital = self._open_position(
+                            sig, strategy, row, capital, positions, ts
+                        )
 
         # Funding accrual
         for sid, pos in list(positions.items()):
-            fr = float(row.get(f"{pos.venue}_{pos.asset}_funding",
-                               row.get("funding_rate", 0.0)) or 0.0)
-            if fr:
-                f_pnl = ExecutionSimulator.compute_funding_pnl(
-                    pos.notional, fr,
-                    "long" if pos.side == Side.LONG else "short"
+            if pos.market == Market.PERP:
+                fr = float(row.get(f"{pos.venue}_{pos.asset}_funding",
+                                   row.get("funding_rate", 0.0)) or 0.0)
+                if fr:
+                    f_pnl = ExecutionSimulator.compute_funding_pnl(
+                        pos.notional, fr,
+                        "long" if pos.side == Side.LONG else "short"
+                    )
+                    pos.pnl += f_pnl
+                    capital += f_pnl
+                    logger.info(f"PAPER funding {sid}: {f_pnl:+.4f}")
+            if pos.market == Market.SPOT and pos.side == Side.SHORT:
+                venue_cfg = self.venue_cfgs.get(pos.venue, {})
+                borrow = ExecutionSimulator.compute_borrow_cost(
+                    pos.notional, venue_cfg.get("borrow_rate_annual", 0.05), 8.0
                 )
-                pos.pnl += f_pnl
-                capital += f_pnl
-                logger.info(f"PAPER funding {sid}: {f_pnl:+.4f}")
+                pos.pnl -= borrow
+                capital -= borrow
             pos.bars_held += 1
 
         # MTM equity

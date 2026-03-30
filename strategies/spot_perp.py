@@ -19,7 +19,7 @@ Bias guards:
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
 
@@ -39,6 +39,7 @@ class SpotPerpFundingStrategy(BaseStrategy):
         self.venues     = cfg.get("venues",                  ["binance"])
         self.assets     = cfg.get("assets",                  ["BTC", "ETH"])
         self.lb         = cfg.get("zscore_lookback",         48)
+        self.hedge_with_spot = cfg.get("hedge_with_spot", False)
 
     def generate_signals(self, panel: pd.DataFrame, bar_i: int,
                          open_positions: List[Position]) -> List[Signal]:
@@ -47,23 +48,34 @@ class SpotPerpFundingStrategy(BaseStrategy):
 
         row     = panel.iloc[bar_i]
         signals: List[Signal] = []
-        n_open  = len([p for p in open_positions if p.metadata.get("strategy") == self.name])
+        n_open  = len([p for p in open_positions if p.metadata.get("strategy") == self.name and p.market == Market.PERP])
 
         for venue in self.venues:
             for asset in self.assets:
-                sid = f"{self.name}_{venue}_{asset}"
+                pair_id = f"{self.name}_{venue}_{asset}"
+                perp_sid = f"{pair_id}_PERP" if self.hedge_with_spot else pair_id
+                spot_sid = f"{pair_id}_SPOT"
 
                 # ── Exit check ────────────────────────────────────────────
-                existing = next((p for p in open_positions if p.signal_id == sid), None)
-                if existing is not None:
+                existing_perp = next((p for p in open_positions if p.signal_id == perp_sid), None)
+                existing_spot = next((p for p in open_positions if p.signal_id == spot_sid), None)
+                if existing_perp is not None or existing_spot is not None:
                     fr = self._col(row, f"{venue}_{asset}_funding", "funding_rate")
                     if abs(fr) < self.exit_thr or np.isnan(fr):
-                        signals.append(Signal(
-                            signal_id=sid, strategy=self.name,
-                            venue=venue, asset=asset,
-                            market=Market.PERP, side=Side.FLAT,
-                            metadata={"reason": "funding_exit"}
-                        ))
+                        if existing_perp is not None:
+                            signals.append(Signal(
+                                signal_id=perp_sid, strategy=self.name,
+                                venue=venue, asset=asset,
+                                market=Market.PERP, side=Side.FLAT,
+                                metadata={"reason": "funding_exit", "strategy": self.name, "pair_id": pair_id}
+                            ))
+                        if existing_spot is not None:
+                            signals.append(Signal(
+                                signal_id=spot_sid, strategy=self.name,
+                                venue=venue, asset=asset,
+                                market=Market.SPOT, side=Side.FLAT,
+                                metadata={"reason": "funding_exit", "strategy": self.name, "pair_id": pair_id}
+                            ))
                     continue
 
                 if n_open >= self.max_open:
@@ -89,18 +101,41 @@ class SpotPerpFundingStrategy(BaseStrategy):
                         if abs(bz) > self.basis_z:
                             continue
 
-                side = Side.SHORT if fr > 0 else Side.LONG
+                perp_side = Side.SHORT if fr > 0 else Side.LONG
+                spot_side = Side.LONG if perp_side == Side.SHORT else Side.SHORT
                 n_open += 1
                 signals.append(Signal(
-                    signal_id=sid, strategy=self.name,
+                    signal_id=perp_sid, strategy=self.name,
                     venue=venue, asset=asset,
-                    market=Market.PERP, side=side,
+                    market=Market.PERP, side=perp_side,
                     confidence=min(abs(fr) / self.entry_thr, 3.0) / 3.0,
                     metadata={"strategy": self.name, "funding_rate": fr,
-                               "ann_yield": ann_yield}
+                               "ann_yield": ann_yield, "pair_id": pair_id, "hedge_leg": "perp"}
                 ))
+                if self.hedge_with_spot:
+                    signals.append(Signal(
+                        signal_id=spot_sid, strategy=self.name,
+                        venue=venue, asset=asset,
+                        market=Market.SPOT, side=spot_side,
+                        confidence=min(abs(fr) / self.entry_thr, 3.0) / 3.0,
+                        metadata={"strategy": self.name, "funding_rate": fr,
+                                  "ann_yield": ann_yield, "pair_id": pair_id, "hedge_leg": "spot"}
+                    ))
 
         return signals
+
+    def compute_position_size(
+        self,
+        signal: Signal,
+        capital: float,
+        price: float,
+        risk: Dict[str, Any],
+    ) -> float:
+        pct = self.cfg.get("position_size_pct", 0.3) * max(signal.confidence, 0.1)
+        if self.hedge_with_spot and signal.metadata.get("hedge_leg") in ("perp", "spot"):
+            pct *= 0.5
+        notional = capital * pct
+        return max(notional / max(price, 1e-9), 0.0)
 
     def should_exit(self, position: Position, panel: pd.DataFrame,
                      bar_i: int) -> bool:

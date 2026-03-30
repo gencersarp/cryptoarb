@@ -33,11 +33,14 @@ strategies:
     enabled: true
     assets: [BTC]
     venues: [binance]
-    entry_funding_threshold: 0.0003
-    exit_funding_threshold:  0.0001
-    max_hold_bars:           21
+    entry_funding_threshold: 0.0002
+    exit_funding_threshold:  0.00008
+    min_annualized_yield:    0.03
+    max_hold_bars:           30
     position_size_pct:       0.40
     max_open_positions:      1
+    use_basis_filter:        false
+    hedge_with_spot:         true
 
 risk:
   max_drawdown_pct:     5.0
