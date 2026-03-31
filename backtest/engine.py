@@ -176,7 +176,12 @@ class BacktestEngine:
                                        reason="end_of_window")
 
         equity_series = pd.Series(equity)
-        metrics = compute_metrics(equity_series, self.initial_cap)
+        risk_free = float(self.cfg.get("risk_free_rate_annual", 0.0))
+        metrics = compute_metrics(
+            equity_series,
+            self.initial_cap,
+            risk_free_rate_annual=risk_free,
+        )
         metrics["n_trades"]  = len(trades)
         metrics["fold_id"]   = fold_id
         metrics["trades"]    = trades

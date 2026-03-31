@@ -9,8 +9,12 @@ from typing import Dict, Any, List
 import scipy.stats as stats
 
 
-def compute_metrics(equity: pd.Series, initial_capital: float,
-                    freq_hours: int = 8) -> Dict[str, float]:
+def compute_metrics(
+    equity: pd.Series,
+    initial_capital: float,
+    freq_hours: int = 8,
+    risk_free_rate_annual: float = 0.0,
+) -> Dict[str, float]:
     """
     Compute comprehensive risk-adjusted metrics from equity curve.
     freq_hours: bar frequency. 8h → 3 bars/day → 1095 bars/year.
@@ -30,11 +34,14 @@ def compute_metrics(equity: pd.Series, initial_capital: float,
 
     ann_ret  = returns.mean() * bars_per_year
     ann_vol  = returns.std()  * np.sqrt(bars_per_year)
+    excess_ann_ret = ann_ret - risk_free_rate_annual
     sharpe   = ann_ret / ann_vol if ann_vol > 0 else 0.0
+    sharpe_excess = excess_ann_ret / ann_vol if ann_vol > 0 else 0.0
 
     neg_ret  = returns[returns < 0]
     downside = neg_ret.std() * np.sqrt(bars_per_year) if len(neg_ret) > 0 else 1e-9
     sortino  = ann_ret / downside if downside > 0 else 0.0
+    sortino_excess = excess_ann_ret / downside if downside > 0 else 0.0
 
     roll_max = equity.cummax()
     drawdown = (equity - roll_max) / roll_max
@@ -57,9 +64,12 @@ def compute_metrics(equity: pd.Series, initial_capital: float,
         "total_return":    float(total_return),
         "cagr":            float(cagr),
         "ann_return":      float(ann_ret),
+        "ann_excess_return": float(excess_ann_ret),
         "ann_vol":         float(ann_vol),
         "sharpe":          float(sharpe),
+        "sharpe_excess":   float(sharpe_excess),
         "sortino":         float(sortino),
+        "sortino_excess":  float(sortino_excess),
         "calmar":          float(calmar),
         "max_drawdown":    float(max_dd),
         "max_dd_duration": int(dd_dur),
@@ -72,10 +82,28 @@ def compute_metrics(equity: pd.Series, initial_capital: float,
 
 
 def _empty_metrics() -> Dict[str, float]:
-    return {k: 0.0 for k in ["total_return", "cagr", "ann_return", "ann_vol",
-                               "sharpe", "sortino", "calmar", "max_drawdown",
-                               "max_dd_duration", "win_rate", "skewness",
-                               "kurtosis", "var_95", "cvar_95"]}
+    return {
+        k: 0.0
+        for k in [
+            "total_return",
+            "cagr",
+            "ann_return",
+            "ann_excess_return",
+            "ann_vol",
+            "sharpe",
+            "sharpe_excess",
+            "sortino",
+            "sortino_excess",
+            "calmar",
+            "max_drawdown",
+            "max_dd_duration",
+            "win_rate",
+            "skewness",
+            "kurtosis",
+            "var_95",
+            "cvar_95",
+        ]
+    }
 
 
 def decompose_pnl(trades: list) -> Dict[str, float]:

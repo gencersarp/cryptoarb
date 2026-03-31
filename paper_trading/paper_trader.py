@@ -183,7 +183,8 @@ class PaperTrader:
     def report(self) -> Dict[str, Any]:
         equity_h = self._state.get("equity_history", [self.initial_cap])
         eq = pd.Series(equity_h)
-        metrics = compute_metrics(eq, self.initial_cap)
+        risk_free = float(self.cfg.get("risk_free_rate_annual", 0.0))
+        metrics = compute_metrics(eq, self.initial_cap, risk_free_rate_annual=risk_free)
         print("\n=== Paper Trading Report ===")
         for k, v in metrics.items():
             print(f"  {k:<20}: {v:.4f}")

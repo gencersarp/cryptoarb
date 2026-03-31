@@ -9,6 +9,8 @@ project:
   log_dir: logs/
   log_level: INFO
 
+risk_free_rate_annual: 0.045
+
 paper_trade:
   enabled: true              # MUST be true until you're confident
   initial_capital: 10000

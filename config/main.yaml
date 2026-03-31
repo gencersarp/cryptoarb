@@ -118,6 +118,7 @@ strategies:
 # ── Backtest ─────────────────────────────────────────────────
 backtest:
   initial_capital: 100000
+  risk_free_rate_annual: 0.045
 
   walk_forward:
     n_splits:              5

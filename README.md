@@ -132,6 +132,13 @@ cryptoarb/
 
 For low-activity samples, fold-dominance/stability/IS-OOS-gap checks are enforced once at least 2 active folds exist.
 
+### Sharpe interpretation
+
+- `sharpe`: annualized return divided by annualized volatility (zero risk-free baseline)
+- `sharpe_excess`: (annualized return - `risk_free_rate_annual`) divided by annualized volatility
+
+Use `sharpe_excess` for comparisons against cash / T-bills. A strategy can show high `sharpe` with very low volatility while still having negative excess return if annual return is below the configured risk-free rate.
+
 ---
 
 ## Notes on Live Readiness
