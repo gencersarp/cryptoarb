@@ -81,6 +81,29 @@ def compute_metrics(
     }
 
 
+def omega_ratio(equity: pd.Series, threshold: float = 0.0,
+                freq_hours: int = 8) -> float:
+    """
+    Omega ratio: probability-weighted gains above threshold divided by
+    probability-weighted losses below it.
+
+    Omega > 1 means the strategy earns more above the threshold than it
+    loses below it. Unlike Sharpe, Omega captures the full return distribution
+    without assuming normality.
+
+    threshold: annualised target return (e.g. 0.05 = 5 % p.a.)
+    """
+    if len(equity) < 2:
+        return 0.0
+    bars_per_year = int(365 * 24 / freq_hours)
+    per_bar_threshold = threshold / bars_per_year
+    returns = equity.pct_change().dropna()
+    excess = returns - per_bar_threshold
+    gains  = excess[excess > 0].sum()
+    losses = abs(excess[excess <= 0].sum())
+    return float(gains / losses) if losses > 0 else float("inf")
+
+
 def _empty_metrics() -> Dict[str, float]:
     return {
         k: 0.0
