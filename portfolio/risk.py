@@ -77,6 +77,30 @@ class RiskEngine:
         self.bar_count += 1
         return flags
 
+    def position_risk_score(self, equity: float, positions: dict) -> float:
+        """Composite 0–100 risk score for the current portfolio state.
+
+        Aggregates drawdown severity, leverage utilisation, and unrealized
+        loss fraction into a single number. Scores above 70 indicate the
+        portfolio is approaching at least one hard limit.
+        """
+        score = 0.0
+
+        if self.peak_equity > 0:
+            dd_pct = (self.peak_equity - equity) / self.peak_equity * 100
+            score += min(40.0, (dd_pct / self.max_dd_pct) * 40.0)
+
+        total_notional = sum(p.notional for p in positions.values())
+        leverage = total_notional / max(equity, 1.0)
+        score += min(30.0, (leverage / self.max_leverage) * 30.0)
+
+        unrealized = sum(getattr(p, "pnl", 0.0) for p in positions.values())
+        if unrealized < 0:
+            unrealized_pct = (-unrealized / max(equity, 1.0)) * 100
+            score += min(30.0, (unrealized_pct / self.unrealized_kill_switch_pct) * 30.0)
+
+        return min(100.0, score)
+
     def reset(self):
         self.peak_equity = 0.0
         self.daily_start_equity = 0.0
